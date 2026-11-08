@@ -17,7 +17,7 @@ Every input is a standard FreeCAD property type, so each one takes expressions (
 
 | Property | Type | Default | Meaning |
 |---|---|---|---|
-| `Profile` | LinkSub | | The field: a sketch or any planar face in the same body. Outer loops are fields; inner loops are keep-outs. Islands inside keep-outs are fields again. |
+| `Profile` | LinkSub | | The field: a sketch (or another 2D object whose shape lies in its own XY plane) in the same body. Outer loops are fields; inner loops are keep-outs. Islands inside keep-outs are fields again. Sub-element names are ignored. |
 | `CellSize` | Length | 5 | Cell width across flats. |
 | `Web` | Length | 1.2 | Wall between neighbouring cells. Must be > 0. |
 | `Angle` | Angle | 0 | Lattice rotation about the anchor, in the sketch plane. See Lattice. |
@@ -104,17 +104,32 @@ The feature knows only its field, not the body. A field drawn past the body's ed
 ## GUI
 - **ViewProvider:** it gives the icon and the tree display. Properties are editable in the property editor. A file containing a HexGrid has to open and display cleanly in the user's own FreeCAD.
 - **Headless-created files:** a file made headless has no GUI view data, so the view provider proxy is attached when the document is restored in the GUI.
-- **Visibility:** `make_hex_grid` leaves the new feature visible, and hides the profile sketch and the previous feature. Headless saves get no GUI view data, so it does this the way the GUI would. After a save, the body and its Tip must be visible, with sketches and earlier features hidden.
+- **Visibility:** `make_hex_grid` leaves the new feature visible, and hides the profile sketch and the previous feature, as the GUI does. After a save, the body and its Tip must be visible, with sketches and earlier features hidden.
+- **Headless saves lose visibility.** FreeCAD 1.1.4 opens a file saved by `freecadcmd` (no `GuiDocument.xml`) with every object hidden, the Body included. Verified 2026-11-08 with a control file holding only a Body and a box, so it isn't the addon's doing. Files meant for the user's GUI must be saved from the GUI (off-screen under Xvfb), which is what the GUI test checks.
 
 ## Packaging, install and detection
 - **Layout:** `package.xml` and `freecad/hexilator/` (a namespace package) at the repo root. The repo root is the addon folder.
 - **Restore check:** FreeCAD 1.1.4 imports a proxy's module during document restore only if it comes from an installed addon (a `Mod` folder); being on `sys.path` is not enough. A proxy in `freecad.<name>.<module>` passes, verified 2026-11-08.
-- **Version:** `freecad.hexilator.__version__` (SemVer), the same as `package.xml`'s `<version>`; a test checks that they match. Releases are git tags `vX.Y.Z` on GitHub. Pushing master and tags is the user's call.
+- **Version:** `package.xml`'s `<version>` is the single source. `freecad.hexilator.__version__` reads it at import, so the two can't differ; a test checks the format. Releases are git tags `vX.Y.Z` on GitHub, made by the release workflow (see Development process), which writes the version into `package.xml` on the commit it tags. So a checkout of tag `vX.Y.Z` reports `__version__ == "X.Y.Z"`. Between releases, master reports the last released version.
 - **Install:** an install is a git checkout of a ref at `<user data>/Mod/Hexilator`.
   - The user data dir is `FreeCAD.getUserAppDataDir()`: `~/.local/share/FreeCAD/v1-1/` here, or `$FREECAD_USER_DATA` when that's set.
   - `mise-tasks/install` does it. It clones, or fetches and checks out, and skips the work when the checkout is already at the ref.
   - Source overrides: `HEXILATOR_SOURCE` (default `https://github.com/kazatronics/hexilator.git`; may be a local path such as `~/Work/Parts/addons/hexilator/.repo`) and `HEXILATOR_REF` (a tag or branch). These let Trellis test an untagged branch before a release.
 - **Detection:** a file opened without the addon keeps its last shape, with `Proxy = None`, and recomputes silently with no error. A missing addon is therefore invisible. A user's tests should check `freecad.hexilator.__version__` against their pin; Trellis's do. Each feature also records `Version`.
+
+## Development process
+Set by the user (2026-11-08, via Trellis).
+- **Conventional commits** for every commit, merge commits into master included, since the release workflow reads them: `feat:`, `fix:`, `test:`, `docs:`, `ci:`, `chore:`, `refactor:`, `perf:`. A breaking change takes `!` or a `BREAKING CHANGE:` footer.
+- **Tests:** written alongside the code. Nothing lands on master without tests, and `mise run test` passes before every merge.
+- **CI** (`.github/workflows/ci.yml`): on pull requests and on pushes to branches other than master, and called by the release workflow.
+  - **Jobs:** `mise run lint`, `mise run test` and `mise run test-gui` (under `xvfb-run`).
+  - **FreeCAD:** the official 1.1.4 AppImage, extracted and checked against its SHA256 file by `mise run fetch-freecad`. CI uses the same mise tasks as local runs.
+- **Releases** (`.github/workflows/release.yml`, on pushes to master), after CI passes:
+  1. `mathieudutour/github-tag-action@v7` in dry-run mode computes the next version and its changelog from the conventional commits since the last tag. It uses `default_bump: false`, so `chore:`, `docs:`, `test:` and `ci:` alone don't release. With no tags yet, the first `feat:` gives v0.1.0.
+  2. A `chore(release): vX.Y.Z` commit sets `<version>` and `<date>` in `package.xml`. It's made through the GitHub contents API as the workflow's own identity, so no address is written into the repo, and a commit by the workflow token starts no new workflow run.
+  3. The tag action tags that commit `vX.Y.Z` (`custom_tag`, `commit_sha`).
+  4. `gh release create` publishes the GitHub release with the changelog.
+- **No pushing** to GitHub (branches, master or tags) until the user says so, directly or passed on explicitly by Trellis. Until then the workflows are checked locally only (`mise run lint`: actionlint and shellcheck).
 
 ## Tests
 Tests run headless under `freecadcmd` with `mise run test`. The task points `FREECAD_USER_DATA` at a temporary folder with `Mod/Hexilator` linked to the worktree. Tests use `unittest`. `freecadcmd` exits 0 even when a script raises, so the runner sets its own exit code.
@@ -139,12 +154,9 @@ Tests run headless under `freecadcmd` with `mise run test`. The task points `FRE
   - `__version__` matching `package.xml`;
   - a performance smoke test.
 - **Two-part:** tray and lid bodies split through one field, against a single-body grid.
-- **GUI** (`mise run test-gui`, Xvfb, its own `FREECAD_USER_HOME`): open a file saved headless that contains a HexGrid in the full GUI, and check:
-  - the view provider proxy and icon are present;
-  - the body and Tip are visible, and the sketch and base feature are hidden;
-  - there are no errors in the report view.
-
-  Saves that must keep GUI view data also go through Xvfb.
+- **GUI** (`mise run test-gui`): full FreeCAD under Xvfb with its own `FREECAD_USER_HOME`, in two stages.
+  - **headless:** open a file saved by `freecadcmd`. The HexGrid must get its view provider, icon and tree children, recompute after an edit, and leave no errors in the report view. Then build a HexGrid in the GUI and save the file from the GUI.
+  - **reopen:** open the GUI-saved file. The body and its Tip must be visible and the sketch and base feature hidden, with no errors.
 - **Screenshots:** `mise run shot` (Xvfb) for visual review. Never use the user's FreeCAD window.
 
 ## Prior art
@@ -153,5 +165,6 @@ Tests run headless under `freecadcmd` with `mise run test`. The task points `FRE
 - The survey is Trellis's `tmp/hexgrid-research/REPORT.md` (2026-11-07). The facts used from it are recorded above.
 
 ## Open questions
+- The workflows haven't run on GitHub yet; nothing can be pushed until the user allows it. The CI recipe was checked locally on 2026-11-08: the 1.1.4 AppImage passes the headless suite, and passes the GUI test in an `ubuntu:24.04` container with `ci.yml`'s apt packages. `xvfb-run` needs a 24-bit screen there, so `test-gui` sets `-screen 0 1600x1200x24`.
 - Snap loops that mix straight edges with arcs, e.g. a rounded-rectangle keep-out. In v0.1 the whole loop falls back.
 - A toolbar command and a task panel, after v0.1.
