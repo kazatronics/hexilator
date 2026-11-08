@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+#MISE description="Download and extract the official FreeCAD AppImage (for CI); prints the extracted dir"
+set -euo pipefail
+# Verified against the release's SHA256 file. Cached under $HEXILATOR_FREECAD_DIR
+# (default ~/.cache/hexilator/freecad-<version>).
+version="${FREECAD_VERSION:-1.1.4}"
+name="FreeCAD_${version}-Linux-x86_64-py311.AppImage"
+url="https://github.com/FreeCAD/FreeCAD/releases/download/${version}/${name}"
+dir="${HEXILATOR_FREECAD_DIR:-${XDG_CACHE_HOME:-$HOME/.cache}/hexilator/freecad-${version}}"
+if [ ! -x "$dir/squashfs-root/AppRun" ]; then
+  mkdir -p "$dir"
+  curl -fsSL -o "$dir/$name" "$url"
+  curl -fsSL -o "$dir/$name.sha256" "$url-SHA256.txt"
+  (cd "$dir" && sha256sum -c "$name.sha256" >&2)
+  chmod +x "$dir/$name"
+  (cd "$dir" && "./$name" --appimage-extract >/dev/null)
+  rm -f -- "$dir/$name"
+fi
+echo "$dir/squashfs-root"

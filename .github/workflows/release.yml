@@ -1,0 +1,72 @@
+# On pushes to master: test, then compute the next version from the conventional commits, write
+# it into package.xml, tag that commit vX.Y.Z and publish a GitHub release (DESIGN.md,
+# Development process).
+name: Release
+
+on:
+  push:
+    branches: [master]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  ci:
+    uses: ./.github/workflows/ci.yml
+
+  release:
+    needs: ci
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Next version
+        id: next
+        uses: mathieudutour/github-tag-action@v7
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          dry_run: true
+          default_bump: false
+          release_branches: ^master$
+
+      - name: Write the version into package.xml
+        id: commit
+        if: steps.next.outputs.new_version != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ steps.next.outputs.new_version }}
+        run: |
+          sed -i -E \
+            -e "s|<version>[^<]*</version>|<version>${VERSION}</version>|" \
+            -e "s|<date>[^<]*</date>|<date>$(date -u +%F)</date>|" package.xml
+          # The contents API commits as the workflow's own identity, and commits made with the
+          # workflow token start no new workflow run.
+          sha="$(gh api -X PUT "repos/${GITHUB_REPOSITORY}/contents/package.xml" \
+            -f message="chore(release): v${VERSION}" \
+            -f content="$(base64 -w0 package.xml)" \
+            -f sha="$(git rev-parse "${GITHUB_SHA}:package.xml")" \
+            -f branch=master \
+            --jq .commit.sha)"
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+
+      - name: Tag
+        if: steps.next.outputs.new_version != ''
+        uses: mathieudutour/github-tag-action@v7
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          custom_tag: ${{ steps.next.outputs.new_version }}
+          commit_sha: ${{ steps.commit.outputs.sha }}
+
+      - name: GitHub release
+        if: steps.next.outputs.new_version != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.next.outputs.new_tag }}
+          NOTES: ${{ steps.next.outputs.changelog }}
+        run: gh release create "$TAG" --title "$TAG" --notes "$NOTES" --verify-tag
