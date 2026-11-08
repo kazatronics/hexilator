@@ -5,16 +5,16 @@
        and "master" to "release" in each release commit (DESIGN.md, Releases). -->
   <name>Hexilator</name>
   <description>Parametric hex grids for PartDesign: honeycomb vents and fan covers, with fields, keep-outs and lattice-snapped edges. Hexagon, square, triangle, circle and polygon cells.</description>
-  <version>0.0.0</version>
+  <version>0.5.0</version>
   <date>2026-11-08</date>
   <freecadmin>1.1.0</freecadmin>
   <pythonmin>3.10</pythonmin>
   <maintainer email="kaz@kazatronics.com">kazatronics</maintainer>
   <license file="LICENSE.md">Apache-2.0</license>
   <icon>freecad/hexilator/resources/icons/Hexilator_HexGrid.svg</icon>
-  <url type="repository" branch="master">https://github.com/kazatronics/hexilator</url>
-  <url type="readme">https://raw.githubusercontent.com/kazatronics/hexilator/master/README.md</url>
-  <url type="documentation">https://github.com/kazatronics/hexilator/blob/master/DESIGN.md</url>
+  <url type="repository" branch="release">https://github.com/kazatronics/hexilator</url>
+  <url type="readme">https://raw.githubusercontent.com/kazatronics/hexilator/release/README.md</url>
+  <url type="documentation">https://github.com/kazatronics/hexilator/blob/release/DESIGN.md</url>
   <url type="bugtracker">https://github.com/kazatronics/hexilator/issues</url>
   <depend type="internal">partdesign</depend>
   <tag>PartDesign</tag>
