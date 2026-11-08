@@ -149,6 +149,17 @@ class SnapTest(unittest.TestCase):
         tilted = polygon([(0, 0), (10, 1), (9, 11), (-1, 10)])
         self.assertEqual(snap_loop(tilted, self.lat)[1], "edge off the lattice directions")
 
+    def test_step_that_snaps_away(self):
+        """Issue #1: a step between two edges that snap onto one lattice line vanishes; the
+        loop still snaps, to the same shape as without the step."""
+        stepped = polygon([(-6, 0), (6, 0), (6, 8), (-6.3, 8), (-6.3, 4), (-6, 4)])
+        lp, why = snap_loop(stepped.oriented(False), self.lat)
+        self.assertIsNone(why)
+        self.assertEqual(len(lp.prims), 4)
+        plain, _ = snap_loop(rect(-6.3, 0, 6, 8).oriented(False), self.lat)
+        for got, want in zip(lp.bbox(), plain.bbox()):
+            self.assertAlmostEqual(got, want)
+
     def test_collapse(self):
         # narrower than any pair of lattice lines across the columns: collapses
         self.assertIsNotNone(snap_loop(rect(0.5, 0.5, 20, 2.5), self.lat)[1])
@@ -165,6 +176,27 @@ class PlanTest(unittest.TestCase):
         p = plan([rect(x0 - 0.5, y0 - 0.5, x1 + 0.5, y1 + 0.5)], S, W)
         self.assertEqual(counts(p), (ALIGNED_WHOLE, ALIGNED_PARTIAL, 0))
         self.assertAlmostEqual(total_area(p), ALIGNED_AREA, places=6)
+
+    def test_stepped_keepout_matches_rectangle(self):
+        """Issue #1, as reported: a stepped keep-out that snaps to the same region as a
+        rectangle gives the same plan, with no fallback cells and no warning."""
+        field = rect(-30, -20, 30, 20)
+        stepped = plan([field, polygon([(-6, 0), (6, 0), (6, 8), (-6.3, 8), (-6.3, 4),
+                                        (-6, 4)])], S, W)
+        plain = plan([field, rect(-6.3, 0, 6, 8)], S, W)
+        self.assertEqual(stepped.warnings, [])
+        self.assertEqual(counts(stepped), counts(plain))
+        self.assertEqual(counts(plain), (43, 27, 0))
+        self.assertAlmostEqual(total_area(stepped), total_area(plain), places=9)
+
+    def test_stepped_field_edge(self):
+        """The same on a field's outer loop: the step at x = 0..0.2 snaps away inwards."""
+        stepped = plan([polygon([(0, 0), (40, 0), (40, 30), (0.2, 30), (0.2, 15), (0, 15)])],
+                       S, W)
+        plain = plan([rect(0, 0, 40, 30)], S, W)
+        self.assertEqual(stepped.warnings, [])
+        self.assertEqual(counts(stepped), counts(plain))
+        self.assertAlmostEqual(total_area(stepped), total_area(plain), places=9)
 
     def test_whole_mode(self):
         p = plan([rect(*ALIGNED)], S, W, "Whole")
