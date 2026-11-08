@@ -10,7 +10,7 @@ from freecad.hexilator import make_hex_grid
 grid = make_hex_grid(body, sketch, CellSize=5, Web=1.2, Depth=3)
 ```
 
-There's no toolbar command in v0.1. There is a ViewProvider (see GUI).
+In the GUI, use the **Hex Grid** command (see GUI).
 
 ### Properties
 Every input is a standard FreeCAD property type, so each one takes expressions (e.g. `grid.setExpression("CellSize", "Params.HexCell")`).
@@ -26,7 +26,7 @@ Every input is a standard FreeCAD property type, so each one takes expressions (
 | `Type` | Enumeration | `Dimension` | `Dimension` or `ThroughAll`, as for Pocket. |
 | `Depth` | Length | 3 | Cut depth for `Dimension`. |
 | `Reversed` | Bool | false | Cut along the sketch normal instead of against it. |
-| `Refine` | Bool | false | Inherited from PartDesign. |
+| `Refine` | Bool | PartDesign preference | Inherited from PartDesign. A new feature takes PartDesign's "refine model" preference (`RefineModel`, on unless the user turned it off), like every PartDesign feature. |
 
 Read-only outputs, which Trellis `Check` cells can guard:
 
@@ -101,10 +101,29 @@ The feature knows only its field, not the body. A field drawn past the body's ed
   - make one compound and do one `cut` of `BaseFeature.Shape`;
   - set `AddSubShape` to the compound.
 - **Prism:** the tool is built in the sketch's local frame and placed with the sketch's `Placement`. It runs from the sketch plane against the sketch normal by `Depth` (`Reversed` flips it). `ThroughAll` uses a length beyond the base shape's bounding box. The result must be one valid solid, or the feature raises a clear error. It also raises if there is no `BaseFeature`.
-- **Performance** (research, FreeCAD 1.1.4): one compound cut takes about 0.4 s for 100 cells, 5 s for 484 and 18 s for 1024, roughly quadratic. Fusing the prisms first, tiled cuts and sequential cuts were all no faster. Building the 2D face without booleans and extruding once was only about 20% faster. `Refine` adds 0–40%, so it's off by default.
+- **Performance** (research, FreeCAD 1.1.4): one compound cut takes about 0.4 s for 100 cells, 5 s for 484 and 18 s for 1024, roughly quadratic. Fusing the prisms first, tiled cuts and sequential cuts were all no faster. Building the 2D face without booleans and extruding once was only about 20% faster. `Refine` adds 0–40%; set it to false on large grids that don't need it.
 
 ## GUI
-- **ViewProvider:** it gives the icon and the tree display. Properties are editable in the property editor. A file containing a HexGrid has to open and display cleanly in the user's own FreeCAD.
+Follows current FreeCAD addon practice (the Addon Academy, `FreeCAD/Addon-Template`, PartDesign's own feature dialogs), checked against the FreeCAD 1.1.4 source on 2026-11-08.
+- **No workbench.** `init_gui.py`, which FreeCAD imports at GUI start for the `freecad.hexilator` package, registers the icon path and the commands. It also adds a workbench manipulator (`Gui.addWorkbenchManipulator`, FreeCAD 1.0+).
+  - In PartDesign only, the manipulator adds a **Hexilator** toolbar. Its name is also the key FreeCAD saves the toolbar's visibility under, so it must never change.
+  - It also appends the commands to the end of the **Part Design** menu, after Involute Gear and Sprocket. They don't go in Subtractive Features: in FreeCAD 1.1.4, `MenuItem::findParentOf` returns the wrong menu for an entry two levels deep, so a manipulator can't reach that submenu.
+- **Command `Hexilator_HexGrid`** (Hex Grid):
+  - It takes the selected sketch (any `Part::Part2DObject`) and its Body. With nothing selected, it uses the active Body's only sketch, or asks which one to use.
+  - It runs `make_hex_grid` in a "Create HexGrid" transaction, echoed to the Python console so macros record it. Then it recomputes, copies the base feature's visual properties and opens the task panel, as PartDesign's `finishFeature` does.
+- **Task panel** (`taskpanel.py`), shaped like `TaskDlgFeatureParameters`:
+  - Every input property has a field. Quantity fields are `Gui::QuantitySpinBox`es bound with `Gui.ExpressionBinding`, so the f(x) button sets expressions; a property with an expression isn't overwritten by the field.
+  - Edits apply to the feature as they're made, and the preview recompute is debounced (300 ms). The panel shows the result counts, or the feature's error.
+  - **Select…** picks another 2D object in the same Body as the field.
+  - **OK** recomputes. If the feature is invalid, it shows the error and stays open. Otherwise it hides the base feature and commits the transaction.
+  - **Cancel** aborts the transaction, which deletes a just-created feature or restores an edited one, and shows the previous feature again.
+  - Editing an existing grid opens an "Edit HexGrid" transaction. While editing, the grid is shown; afterwards, whatever was shown before is shown again.
+- **ViewProvider:** it gives the icon and the tree display (the profile is claimed as a child). It handles the default edit mode itself with `setEdit`/`unsetEdit`, opening the task panel.
+  - Without that, a double-click fell through to PartDesign's C++ `getEditDialog()`, which isn't implemented for Python features ("getEditDialog() not implemented", v0.1.3 and earlier).
+  - Other edit modes, such as Transform, return `None`, so PartDesign handles them. `doubleClicked` is left to PartDesign, which opens an "Edit" transaction and calls `setEdit`.
+  - A file containing a HexGrid has to open and display cleanly in the user's own FreeCAD.
+- **Translations:** user-facing strings are marked with `QT_TRANSLATE_NOOP` and `App.Qt.translate`. No translations are shipped yet.
+- **Icons:** SVG, in `freecad/hexilator/resources/icons/`, named with the `Hexilator_` prefix, because icon names are global once the path is registered.
 - **Headless-created files:** a file made headless has no GUI view data, so the view provider proxy is attached when the document is restored in the GUI.
 - **Visibility:** `make_hex_grid` leaves the new feature visible, and hides the profile sketch and the previous feature, as the GUI does. After a save, the body and its Tip must be visible, with sketches and earlier features hidden.
 - **Headless saves lose visibility.** FreeCAD 1.1.4 opens a file saved by `freecadcmd` (no `GuiDocument.xml`) with every object hidden, the Body included. Verified 2026-11-08 with a control file holding only a Body and a box, so it isn't the addon's doing. Files meant for the user's GUI must be saved from the GUI (off-screen under Xvfb), which is what the GUI test checks.
@@ -166,9 +185,10 @@ Tests run headless under `freecadcmd` with `mise run test`. The task points `FRE
   - `__version__` matching `package.xml`;
   - a performance smoke test.
 - **Two-part:** tray and lid bodies split through one field, against a single-body grid.
-- **GUI** (`mise run test-gui`): full FreeCAD under Xvfb with its own `FREECAD_USER_HOME`, in two stages.
+- **GUI** (`mise run test-gui`): full FreeCAD under Xvfb with its own `FREECAD_USER_HOME`, in three stages.
   - **headless:** open a file saved by `freecadcmd`. The HexGrid must get its view provider, icon and tree children, recompute after an edit, and leave no errors in the report view. Then build a HexGrid in the GUI and save the file from the GUI.
   - **reopen:** open the GUI-saved file. The body and its Tip must be visible and the sketch and base feature hidden, with no errors.
+  - **commands:** in PartDesign, the Hexilator toolbar and the menu entry are there, and the toolbar is gone in Part. Run Hex Grid on a selected sketch. The panel previews an edit, OK commits it as "Create HexGrid", and undo and redo work. Cancel on a new grid deletes it and shows the previous feature again. A double-click opens the panel: Cancel restores the values, and OK keeps them as "Edit HexGrid". No errors may appear in the report view. The stage avoids every path that would open a modal message box.
 - **Screenshots:** `mise run shot` (Xvfb) for visual review. Never use the user's FreeCAD window.
 
 ## Prior art
@@ -179,4 +199,4 @@ Tests run headless under `freecadcmd` with `mise run test`. The task points `FRE
 ## Open questions
 - The CI recipe was checked locally on 2026-11-08: the 1.1.4 AppImage passes the headless suite, and passes the GUI test in an `ubuntu:24.04` container with `ci.yml`'s apt packages. `xvfb-run` needs a 24-bit screen there, so `test-gui` sets `-screen 0 1600x1200x24`.
 - Snap loops that mix straight edges with arcs, e.g. a rounded-rectangle keep-out. In v0.1 the whole loop falls back.
-- A toolbar command and a task panel, after v0.1.
+- **Sketch output:** a parametric 2D grid profile (a `Part::Part2DObjectPython`, which Pocket and Pad accept), or a one-shot conversion to an unconstrained sketch, for raised honeycombs or DXF export. Deferred until there's a use for it. Real Sketcher sketches are slow at grid sizes: about 0.4 s to recompute 500 unconstrained hexagons, but 77 s with coincident constraints.

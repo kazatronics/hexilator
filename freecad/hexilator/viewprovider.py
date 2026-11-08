@@ -3,7 +3,11 @@
 
 import os
 
-ICON = os.path.join(os.path.dirname(__file__), "resources", "HexGrid.svg")
+ICONS = os.path.join(os.path.dirname(__file__), "resources", "icons")
+ICON = os.path.join(ICONS, "Hexilator_HexGrid.svg")
+
+EDIT_DEFAULT = 0
+"""Gui::ViewProvider::Default, the mode a double-click and setEdit(obj, 0) open."""
 
 
 class ViewProviderHexGrid:
@@ -22,6 +26,30 @@ class ViewProviderHexGrid:
         if not link:
             return []
         return [link[0] if isinstance(link, tuple) else link]
+
+    # A PartDesign Python feature must handle the default edit mode itself: PartDesign's C++
+    # fallback calls getEditDialog(), which isn't implemented for Python features. Other
+    # modes (Transform, Color, ...) return None so PartDesign handles them. doubleClicked is
+    # left to PartDesign, which opens an "Edit <Label>" transaction and calls setEdit.
+    def setEdit(self, vobj, mode):
+        if mode != EDIT_DEFAULT:
+            return None
+        import FreeCADGui as Gui
+
+        from .taskpanel import HexGridTaskPanel
+
+        if Gui.Control.activeDialog():
+            Gui.Control.closeDialog()
+        Gui.Control.showDialog(HexGridTaskPanel(vobj.Object))
+        return True
+
+    def unsetEdit(self, vobj, mode):
+        if mode != EDIT_DEFAULT:
+            return None
+        import FreeCADGui as Gui
+
+        Gui.Control.closeDialog()
+        return True
 
     def dumps(self):
         return None

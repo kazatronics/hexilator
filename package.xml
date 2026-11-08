@@ -8,7 +8,7 @@
   <license file="LICENSE.md">Apache-2.0</license>
   <url type="repository" branch="master">https://github.com/kazatronics/hexilator</url>
   <url type="bugtracker">https://github.com/kazatronics/hexilator/issues</url>
-  <icon>freecad/hexilator/resources/HexGrid.svg</icon>
+  <icon>freecad/hexilator/resources/icons/Hexilator_HexGrid.svg</icon>
   <content>
     <other>
       <name>Hexilator</name>

@@ -234,6 +234,17 @@ class VersionTest(unittest.TestCase):
         self.assertEqual(hx.__version__, m.group(1))
         self.assertRegex(hx.__version__, r"^\d+\.\d+\.\d+$")
 
+    def test_icons_exist(self):
+        """package.xml's icon, the view provider's and the command's are all on disk."""
+        root = os.environ["HEXILATOR_ROOT"]
+        with open(os.path.join(root, "package.xml")) as f:
+            icon = re.search(r"<icon>([^<]+)</icon>", f.read()).group(1)
+        self.assertTrue(os.path.isfile(os.path.join(root, icon)), icon)
+        from freecad.hexilator.viewprovider import ICON, ICONS
+        self.assertTrue(os.path.isfile(ICON), ICON)
+        # the command's Pixmap is a bare name resolved on the registered icon path
+        self.assertTrue(os.path.isfile(os.path.join(ICONS, "Hexilator_HexGrid.svg")))
+
 
 class ReopenTest(unittest.TestCase):
     def test_save_reopen_recompute(self):
