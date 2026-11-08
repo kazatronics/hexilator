@@ -132,7 +132,7 @@ Set by the user on 2026-11-08: conventional commits, CI and automated releases (
   - no force pushes;
   - no deletion;
   - the CI `test` check must pass.
-- **Conventional commits** for every commit, merge commits included, since the release workflow reads them: `feat:`, `fix:`, `test:`, `docs:`, `ci:`, `build:`, `chore:`, `refactor:`, `perf:`. A breaking change takes `!` or a `BREAKING CHANGE:` footer.
+- **Conventional commits** for every commit, merge commits included, since the release workflow reads them: `feat:`, `fix:`, `test:`, `docs:`, `ci:`, `build:`, `chore:`, `refactor:`, `perf:`. From 1.0 on, a breaking change takes `!` or a `BREAKING CHANGE:` footer. Before 1.0 (the user's rule, 2026-11-08) neither is used, because the tag action would turn it into a major bump to v1.0.0; 1.0 is released deliberately.
 - **Tests:** written alongside the code. Nothing lands on master without tests for the change, and `mise run test` passes before a PR is merged.
 - **CI** (`.github/workflows/ci.yml`): on pull requests, and called by the release workflow.
   - **Job `test`:** `mise run lint`, `mise run test` and `mise run test-gui` (under `xvfb-run`).
