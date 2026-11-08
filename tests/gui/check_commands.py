@@ -45,26 +45,21 @@ try:
     def toolbar():
         return mw.findChild(QtWidgets.QToolBar, "Hexilator")
 
-    def menu_with(text):
-        """The menu holding an action with this text, searched through the menu bar.
+    def command_menus(name):
+        """The menus showing the command's action, found through the action itself.
 
-        FreeCAD rebuilds some menus (e.g. recent files) on the fly, so a menu found a moment
-        ago may already be deleted: skip those.
+        Walking the menu bar is racy: FreeCAD rebuilds some menus on the fly, deleting the
+        QMenu objects found a moment earlier.
         """
-        def search(menus):
-            for m in menus:
-                try:
-                    actions = m.actions()
-                except RuntimeError:  # Internal C++ object already deleted
-                    continue
-                if text in [a.text().replace("&", "") for a in actions]:
-                    return m
-                found = search([a.menu() for a in actions if a.menu()])
-                if found is not None:
-                    return found
-            return None
-
-        return search([a.menu() for a in mw.menuBar().actions() if a.menu()])
+        menus = []
+        for act in Gui.Command.get(name).getAction():
+            for o in act.associatedObjects():
+                if isinstance(o, QtWidgets.QMenu):
+                    try:
+                        menus.append((o, [a.text().replace("&", "") for a in o.actions()]))
+                    except RuntimeError:  # Internal C++ object already deleted
+                        pass
+        return menus
 
     def grids(doc):
         return [o for o in doc.Objects if hasattr(o, "CellSize")]
@@ -84,11 +79,15 @@ try:
               "the Hexilator toolbar has no Hex Grid action: %r"
               % [a.text() for a in tb.actions()])
         check(tb.isVisible(), "the Hexilator toolbar is hidden in PartDesign")
-    m = menu_with("Hex Grid")
-    if check(m is not None, "Hex Grid is in no menu"):
-        texts = [a.text().replace("&", "") for a in m.actions()]
-        check(any(t.startswith("Sprocket") for t in texts),
-              "Hex Grid isn't in the Part Design menu beside Sprocket: %r" % texts)
+    for _ in range(10):
+        menus = command_menus(HEXGRID)
+        if menus:
+            break
+        settle()
+    if check(menus, "Hex Grid is in no menu"):
+        check(any(any(t.startswith("Sprocket") for t in texts) for _, texts in menus),
+              "Hex Grid isn't in the Part Design menu beside Sprocket: %r"
+              % [texts for _, texts in menus])
     Gui.activateWorkbench("PartWorkbench")
     settle()
     tb = toolbar()
