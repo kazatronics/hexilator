@@ -56,6 +56,9 @@ jobs:
           # commits as the workflow's own identity.
           repo="repos/${GITHUB_REPOSITORY}"
           prev="$(gh api "$repo/git/ref/heads/release" --jq .object.sha 2>/dev/null || true)"
+          # A missing release branch (404) still prints an error body on stdout, so only a
+          # full SHA counts as the previous head.
+          [[ $prev =~ ^[0-9a-f]{40}$ ]] || prev=""
           parents="$(jq -nc --arg a "$GITHUB_SHA" --arg b "$prev" \
             '[$a] + (if $b == "" then [] else [$b] end)')"
           base_tree="$(gh api "$repo/git/commits/${GITHUB_SHA}" --jq .tree.sha)"
