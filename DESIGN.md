@@ -123,7 +123,42 @@ The feature knows only its field, not the body. A field drawn past the body's ed
   - make one compound and do one `cut` of `BaseFeature.Shape`;
   - set `AddSubShape` to the compound.
 - **Prism:** the tool is built in the sketch's local frame and placed with the sketch's `Placement`. It runs from the sketch plane against the sketch normal by `Depth` (`Reversed` flips it). `ThroughAll` uses a length beyond the base shape's bounding box. The result must be one valid solid, or the feature raises a clear error. It also raises if there is no `BaseFeature`.
+- **Shared with HexGridPad:** `feature.plan_grid` (profile to clipping plan) and `feature.openings` (the cell openings, as faces or as prisms with the whole cells sharing one template) serve both features. HexGrid's results don't change; the pad's geometry is under Hex Grid Pad.
 - **Performance** (research, FreeCAD 1.1.4): one compound cut takes about 0.4 s for 100 cells, 5 s for 484 and 18 s for 1024, roughly quadratic. Fusing the prisms first, tiled cuts and sequential cuts were all no faster. Building the 2D face without booleans and extruding once was only about 20% faster. `Refine` adds 0–40%; set it to false on large grids that don't need it.
+
+## Hex Grid Pad
+Issue #14. `HexGridPad` is the additive counterpart of `HexGrid`: a `PartDesign::FeatureAdditivePython` that pads a grid onto the body, the way a Pad adds material. The proxy is `freecad.hexilator.pad.HexGridPad` (stored in documents, never renamed). The feature code is in `pad.py`; it shares the profile reading, the lattice and clipping plan and the cell openings with `HexGrid` (`feature.plan_grid` and `feature.openings`), so the two can't drift apart.
+
+```python
+from freecad.hexilator import make_hex_grid_pad
+ribs = make_hex_grid_pad(body, sketch, Mode="Walls", Height=2, Border=1)
+```
+`make_hex_grid_pad(body, profile, name="HexGridPad", **props)` hides the profile and the previous feature, like `make_hex_grid`. In the GUI, use the **Hex Grid Pad** command (see GUI).
+
+### Properties
+- **Same as HexGrid:** `Profile`, `CellShape`, `CellSize`, `Web`, `Lattice`, `Sides`, `Angle`, `AnchorX`, `AnchorY` and `ClipMode`, with the same names, meanings and defaults (they're one list, `feature.LATTICE_INPUTS`). A pad and a pocket grid with the same parameters and anchor therefore share a lattice. `Refine` is inherited from PartDesign.
+- **Instead of `Type` and `Depth`:**
+| Property | Type | Default | Meaning |
+|---|---|---|---|
+| `Mode` | Enumeration | `Walls` | `Walls` pads the field minus the cells (ribs, with `Web` as their thickness). `Cells` pads the cells (bosses, an embossed pattern). |
+| `Height` | Length | 2 | Pad height. Must be > 0. |
+| `Reversed` | Bool | false | False pads **along** the sketch normal, as Pad does. True pads against it. (HexGrid's `Reversed` is the other way round: a cut goes into the part, against the normal, by default.) |
+| `Border` | Length | 0 | Walls only: width of a rib along the inside of the field's outline and around each keep-out. 0 means none. Hidden in `Cells` mode. |
+- **Outputs:** `WholeCells`, `PartialCells`, `FallbackCells`, `OpenArea` and `Version`, as for HexGrid. They describe the cell openings the grid is planned with, whichever mode: `OpenArea` is the cells' area, and in `Walls` mode a `Border` rib that closes part of a cell isn't subtracted from it.
+- Added in `__init__` and again in `onDocumentRestored`, as for HexGrid. A test removes `Border` from a saved file and checks it comes back.
+
+### Geometry
+The 2D shape is built in the lattice frame and extruded once, by `Height` along (or, `Reversed`, against) the sketch normal, then placed with the sketch's and the lattice's placement.
+- **`Cells`:** the faces of the cell openings, exactly the openings a HexGrid would cut: whole cells are translated copies of one template face, partial cells are the clipped pieces, `Free` pieces are `cell ∩ field`.
+- **`Walls`:** `field − cells`, where the field is the sketch's face as drawn (outer loops, with keep-outs as holes, islands as faces again). With `Snap`, the cells stay inside the snapped field, so the strip between a snapped edge and the drawn one (up to 3.1 mm at cell 5 and web 1.2) stays solid. With `Free` the cells reach the outline and the walls end there. A pad and a pocket from the same parameters are complementary: the pocket's cut and the pad's walls add up to the field (a test checks this, and that `Cells` is the pocket's cut raised).
+- **`Border` decision (issue #14):** 0 gives no border rib: the walls are what the cells leave, and stop wherever the cells are cut (so with `Free`, the outline is open cell by cell; with `Snap`, the snap strip is the rib). `Border` > 0 adds a rib at least that wide along the *inside* of the field's outline and around each keep-out, for stiffness and a finished edge. It's built by cutting the cells only where they lie inside the field inset by `Border` (the outline moves in, keep-outs grow): `walls = field − (cells ∩ inset)`. A cell that reaches into the rib is therefore closed or cut back by it, and `OpenArea` doesn't change. A `Border` wider than the field leaves it all rib. Why: the alternatives (always a rib, or a separate property for the outline and the keep-outs) either remove the open-edged look people want from an isogrid, or add a property nobody asked for; 0 keeps the cells exactly as the pocket cuts them.
+- **The inset** is made loop by loop: OCC's 2D offset of a face with holes is wrong in FreeCAD 1.1.4 (it shrinks the holes too, or returns only the hole), so each loop is offset as a face of its own (arcs round the corners that open up) and the grown keep-outs are cut from the shrunk outline. Tested on faces with holes and circles.
+- **Result:** `AddSubShape` is the padded solid, in body coordinates. `Shape` is `BaseFeature.Shape` fused with it, refined if `Refine`. It must be exactly one solid, or the feature raises a clear error. With no `BaseFeature` the padded solid alone is the shape (placed in body coordinates, not as a `Placement`, because the body would drop that), and it must also be one solid.
+
+### Errors
+`Height` ≤ 0, `Border` < 0 (only reachable by an expression: the property clamps), `Web` ≤ 0, an open profile, no cells in `Cells` mode, walls that leave nothing, and a result of more than one solid. The last is what `Cells` mode gives when the bosses don't touch the body (floating above it, or with no base solid: "separate bosses; pad it onto a solid"). Pad is the same: a pad that doesn't meet the body is an error, not a second body.
+- **Uses:** stiffening ribs (isogrid-style hex, square or triangle) on a plate, panel or shell wall; raised cells or walls as decoration; honeycomb sandwiches (see the README).
+- **Performance:** about 4 s for 525 cells (`Walls` or `Cells`), faster than the pocket's 5 s: 2D booleans on faces, one extrusion, and one fuse with the body.
 
 ## GUI
 Follows current FreeCAD addon practice (the Addon Academy, `FreeCAD/Addon-Template`, PartDesign's own feature dialogs), checked against the FreeCAD 1.1.4 source on 2026-11-08.
@@ -133,6 +168,7 @@ Follows current FreeCAD addon practice (the Addon Academy, `FreeCAD/Addon-Templa
 - **Command `Hexilator_HexGrid`** (Hex Grid):
   - It takes the selected sketch (any `Part::Part2DObject`) and its Body. With nothing selected, it uses the active Body's only sketch, or asks which one to use.
   - It runs `make_hex_grid` in a "Create HexGrid" transaction, echoed to the Python console so macros record it. Then it recomputes, copies the base feature's visual properties and opens the task panel, as PartDesign's `finishFeature` does.
+- **Command `Hexilator_HexGridPad`** (Hex Grid Pad): the same, from the same selection rules, but it runs `make_hex_grid_pad` in a "Create HexGridPad" transaction. It is a subclass of the Hex Grid command, on the Hexilator toolbar and in the Part Design menu through the same manipulator lists (`TOOLBAR_COMMANDS`, `MENU_COMMANDS`), after Hex Grid.
 - **Task panel** (`taskpanel.py`), shaped like `TaskDlgFeatureParameters`:
   - Every input property has a field. Quantity fields are `Gui::QuantitySpinBox`es bound with `Gui.ExpressionBinding`, so the f(x) button sets expressions; a property with an expression isn't overwritten by the field.
   - Edits apply to the feature as they're made, and the preview recompute is debounced (300 ms). The panel shows the result counts, or the feature's error.
@@ -140,14 +176,15 @@ Follows current FreeCAD addon practice (the Addon Academy, `FreeCAD/Addon-Templa
   - **OK** recomputes. If the feature is invalid, it shows the error and stays open. Otherwise it hides the base feature and commits the transaction.
   - **Cancel** aborts the transaction, which deletes a just-created feature or restores an edited one, and shows the previous feature again.
   - Editing an existing grid opens an "Edit HexGrid" transaction. While editing, the grid is shown; afterwards, whatever was shown before is shown again.
-- **ViewProvider:** it gives the icon and the tree display (the profile is claimed as a child). It handles the default edit mode itself with `setEdit`/`unsetEdit`, opening the task panel.
+  - **One panel for both features:** the feature decides the fields. A HexGridPad shows `Mode`, `Height`, `Border` and `Reversed` instead of `Type` and `Depth`; `Border` is disabled in `Cells` mode. The transactions are "Create HexGridPad" and "Edit HexGridPad"; OK, Cancel and the preview behave exactly as for HexGrid.
+- **ViewProvider:** it gives the icon and the tree display (the profile is claimed as a child). It handles the default edit mode itself with `setEdit`/`unsetEdit`, opening the task panel. `ViewProviderHexGridPad` (a subclass, with the pad's own icon) belongs to the pad; `ensure_view_provider` picks the class by feature type. Both have the same `setEdit`/`unsetEdit`, which open the one task panel.
   - Without that, a double-click fell through to PartDesign's C++ `getEditDialog()`, which isn't implemented for Python features ("getEditDialog() not implemented", v0.1.3 and earlier).
   - Other edit modes, such as Transform, return `None`, so PartDesign handles them. `doubleClicked` is left to PartDesign, which opens an "Edit" transaction and calls `setEdit`.
   - A file containing a HexGrid has to open and display cleanly in the user's own FreeCAD.
 - **Translations:** user-facing strings are marked with `QT_TRANSLATE_NOOP` and `App.Qt.translate`. No translations are shipped yet.
-- **Icons:** SVG, in `freecad/hexilator/resources/icons/`, named with the `Hexilator_` prefix, because icon names are global once the path is registered.
+- **Icons:** SVG, in `freecad/hexilator/resources/icons/`, named with the `Hexilator_` prefix, because icon names are global once the path is registered. `Hexilator_HexGridPad.svg` is a raised honeycomb (lit ribs with a shadow), where `Hexilator_HexGrid.svg` shows cut-out hexagons.
 - **Headless-created files:** a file made headless has no GUI view data, so the view provider proxy is attached when the document is restored in the GUI.
-- **Visibility:** `make_hex_grid` leaves the new feature visible, and hides the profile sketch and the previous feature, as the GUI does. After a save, the body and its Tip must be visible, with sketches and earlier features hidden.
+- **Visibility:** `make_hex_grid` and `make_hex_grid_pad` leave the new feature visible, and hides the profile sketch and the previous feature, as the GUI does. After a save, the body and its Tip must be visible, with sketches and earlier features hidden.
 - **Headless saves lose visibility.** FreeCAD 1.1.4 opens a file saved by `freecadcmd` (no `GuiDocument.xml`) with every object hidden, the Body included. Verified 2026-11-08 with a control file holding only a Body and a box, so it isn't the addon's doing. Files meant for the user's GUI must be saved from the GUI (off-screen under Xvfb), which is what the GUI test checks.
 
 ## Packaging, install and detection
@@ -229,10 +266,20 @@ Tests run headless under `freecadcmd` with `mise run test`. The task points `FRE
   - the feature's volumes for each shape;
   - editor modes, the `Sides` constraint and expressions;
   - a file saved without the shape properties reopening unchanged.
+- **Hex Grid Pad** (`test_pad.py`):
+  - `Walls` and `Cells` volumes on a plate, against analytic areas for an aligned rectangle field (`Cells` = `OpenArea` × `Height`; `Walls` = (field − `OpenArea`) × `Height`; the two add up to the field);
+  - every cell shape, with `Snap` and `Free`, and a keep-out;
+  - `Border`: the volume against an independent measure (a HexGrid in `Free` mode on the inset field), the rib along the outline, the ring around a keep-out, on arcs and holes, wider than the field, no effect in `Cells` mode;
+  - `Reversed`, a flipped sketch, a sketch on another plane and a placed body;
+  - one valid solid fused onto the plate; the errors for disjoint bosses (above the plate, or with no base), `Height` 0, `Border` < 0, `Web` 0 and no cells; walls with no base as the whole shape;
+  - expressions from a spreadsheet; editor modes; the same lattice inputs as HexGrid;
+  - a pad and a HexGrid with the same parameters produce complementary cells (the pocket's cut raised equals `Cells`; the walls and the cut add up to the field); a HexGrid pocketing into a pad;
+  - save, reopen and recompute in a new process, and a file missing `Border`;
+  - performance smoke test (both modes).
 - **GUI** (`mise run test-gui`): full FreeCAD under Xvfb with its own `FREECAD_USER_HOME`, in three stages.
-  - **headless:** open a file saved by `freecadcmd`. The HexGrid must get its view provider, icon and tree children, recompute after an edit, and leave no errors in the report view. Then build a HexGrid in the GUI and save the file from the GUI.
+  - **headless:** open a file saved by `freecadcmd`. The HexGrid and a HexGridPad must each get their view provider (the pad's own class and icon), icon and tree children, recompute after an edit, and leave no errors in the report view. Then build both in the GUI and save the file from the GUI.
   - **reopen:** open the GUI-saved file. The body and its Tip must be visible and the sketch and base feature hidden, with no errors.
-  - **commands:** in PartDesign, the Hexilator toolbar and the menu entry are there, and the toolbar is gone in Part. Run Hex Grid on a selected sketch. The panel previews an edit, OK commits it as "Create HexGrid", and undo and redo work. Cancel on a new grid deletes it and shows the previous feature again. A double-click opens the panel: Cancel restores the values, and OK keeps them as "Edit HexGrid". No errors may appear in the report view. The stage avoids every path that would open a modal message box.
+  - **commands:** in PartDesign, the Hexilator toolbar and the menu entries (Hex Grid and Hex Grid Pad) are there, and the toolbar is gone in Part. Run Hex Grid on a selected sketch. The panel previews an edit, OK commits it as "Create HexGrid", and undo and redo work. Cancel on a new grid deletes it and shows the previous feature again. A double-click opens the panel: Cancel restores the values, and OK keeps them as "Edit HexGrid". No errors may appear in the report view. The stage avoids every path that would open a modal message box. The same for Hex Grid Pad: the command makes a HexGridPad from a selected sketch, the panel shows `Mode`, `Height`, `Border` and `Reversed` and not `Type` or `Depth`, OK commits "Create HexGridPad", undo and redo, Cancel, and a double-click edit ("Edit HexGridPad").
 - **Screenshots:** `mise run shot` (Xvfb) for visual review. Never use the user's FreeCAD window.
 
 ## Prior art
