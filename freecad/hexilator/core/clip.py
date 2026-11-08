@@ -5,7 +5,7 @@ import math
 
 from .geom import EPS, Loop, Region, Seg, dot, dist, line_intersection, poly_area, sub, \
     poly_centroid, seg_hits_convex, union_tiles
-from .lattice import DEG30, Lattice
+from .lattice import make_lattice
 
 MODES = ("Snap", "Whole", "Free")
 
@@ -142,14 +142,13 @@ def snap_loop(loop, lattice):
         return None, "degenerate"
     lines = []
     for s in segs:
-        k = Lattice.direction_index(_direction(s))
+        k = lattice.direction_index(_direction(s))
         if k is None:
             return None, "edge off the lattice directions"
-        a = k * DEG30
-        d = (math.cos(a), math.sin(a))
-        nl = (-d[1], d[0])  # left normal: points into the region
+        nl = lattice.normal(k)  # left normal: points into the region
+        d = (nl[1], -nl[0])
         mid = ((s.a[0] + s.b[0]) / 2, (s.a[1] + s.b[1]) / 2)
-        c = lattice.snap_up(k % 6, dot(nl, mid), EPS)
+        c = lattice.snap_up(k, dot(nl, mid), EPS)
         lines.append((k, d, nl, c))
     verts, why = _snapped_vertices(lines)
     if verts is None:
@@ -169,12 +168,11 @@ def mark_lattice_segments(loop, lattice):
     prims = []
     for p in loop.prims:
         if isinstance(p, Seg):
-            k = Lattice.direction_index(_direction(p))
+            k = lattice.direction_index(_direction(p))
             if k is not None:
-                a = k * DEG30
-                nl = (-math.sin(a), math.cos(a))
-                if lattice.on_line(k % 6, dot(nl, p.a), EPS) and \
-                        lattice.on_line(k % 6, dot(nl, p.b), EPS):
+                nl = lattice.normal(k)
+                if lattice.on_line(k, dot(nl, p.a), EPS) and \
+                        lattice.on_line(k, dot(nl, p.b), EPS):
                     p = Seg(p.a, p.b, lattice=True)
         prims.append(p)
     return Loop(prims, loop.curved)
@@ -203,11 +201,17 @@ def _translate(poly, c):
     return [(x + c[0], y + c[1]) for x, y in poly]
 
 
-def plan(loops, cell, web, mode="Snap"):
-    """Decide every cell's opening for a field given as loops in the lattice frame."""
+def plan(loops, cell, web, mode="Snap", shape="Hexagon", grid="Hexagonal", sides=8):
+    """Decide every cell's opening for a field given as loops in the lattice frame.
+
+    shape is one of lattice.SHAPES; grid and sides apply to Circle and Polygon. Those shapes
+    have no lattice lines, so Snap gives the same result as Whole for them.
+    """
     if mode not in MODES:
         raise ValueError("ClipMode must be one of %s" % ", ".join(MODES))
-    lat = Lattice(cell, web)
+    lat = make_lattice(cell, web, shape, grid, sides)
+    if mode == "Snap" and not lat.snappable:
+        mode = "Whole"
     region = Region.from_loops(loops)
     warnings = []
     if mode == "Snap":
@@ -216,12 +220,11 @@ def plan(loops, cell, web, mode="Snap"):
     box = region.bbox()
     if box is None:
         return Plan(lat, pieces, warnings)
-    tiles = lat.tiles()
-    cands = lat.candidates()
     for i, j in lat.cells_in(box):
         c = lat.center(i, j)
-        hexa = _translate(lat.hexagon, c)
-        hits = region.hits(hexa)
+        key = lat.key(i, j)
+        poly = _translate(lat.outline(key), c)
+        hits = region.hits(poly)
         if not hits:
             if region.contains(c):
                 pieces.append(Piece(i, j, "whole", None, lat.cell_area))
@@ -232,7 +235,7 @@ def plan(loops, cell, web, mode="Snap"):
             pieces.append(Piece(i, j, "free"))
             continue
         if all(p.lattice for p in hits):
-            inside = [_translate(t, c) for t in tiles
+            inside = [_translate(t, c) for t in lat.tiles(key)
                       if region.contains(poly_centroid(_translate(t, c)))]
             if not inside:
                 continue
@@ -242,8 +245,8 @@ def plan(loops, cell, web, mode="Snap"):
             else:
                 pieces.append(Piece(i, j, "exact", union_tiles(inside), area))
             continue
-        for kind, poly in cands:
-            q = _translate(poly, c)
+        for kind, cand in lat.candidates(key):
+            q = _translate(cand, c)
             if region.classify(q) == "in":
                 if kind == "whole":
                     pieces.append(Piece(i, j, "whole", None, lat.cell_area))

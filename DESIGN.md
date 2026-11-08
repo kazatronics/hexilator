@@ -18,8 +18,11 @@ Every input is a standard FreeCAD property type, so each one takes expressions (
 | Property | Type | Default | Meaning |
 |---|---|---|---|
 | `Profile` | LinkSub | | The field: a sketch (or another 2D object whose shape lies in its own XY plane) in the same body. Outer loops are fields; inner loops are keep-outs. Islands inside keep-outs are fields again. Sub-element names are ignored. |
-| `CellSize` | Length | 5 | Cell width across flats. |
-| `Web` | Length | 1.2 | Wall between neighbouring cells. Must be > 0. |
+| `CellShape` | Enumeration | `Hexagon` | `Hexagon`, `Square`, `Triangle`, `Circle` or `Polygon`. See Cell shapes. |
+| `CellSize` | Length | 5 | The cell's inscribed-circle diameter: across flats for a hexagon, the side of a square, the diameter of a circle. |
+| `Web` | Length | 1.2 | Gap between neighbouring cells. Must be > 0. For polygons, it's the gap between their inscribed circles. |
+| `Lattice` | Enumeration | `Hexagonal` | The grid of centres for `Circle` and `Polygon` cells: `Hexagonal` or `Square`. Hidden for the other shapes, which have their own. |
+| `Sides` | IntegerConstraint | 8 | Sides of a `Polygon` cell, 3 to 64. Hidden for the other shapes. |
 | `Angle` | Angle | 0 | Lattice rotation about the anchor, in the sketch plane. See Lattice. |
 | `AnchorX`, `AnchorY` | Distance | 0 | A cell centre sits at this point, in sketch coordinates. This pins the lattice's phase. |
 | `ClipMode` | Enumeration | `Snap` | `Snap`, `Whole` or `Free`. See Clipping. |
@@ -62,6 +65,25 @@ A *lattice line* cuts every cell it crosses along a chord between two of that ce
 - **Short-diagonal lines** at 30°, 90° and 150°. For 90°, these are the lines `±R/2` from a column's centre line. Each cuts every cell of that column, leaving a 5/6 pentagon on one side and a 1/6 triangle on the other. It clears the next column by `h − 3R/2 = w·√3/2`. They lie at offsets `i·h ± R/2`.
 
 The other directions are the same lines rotated by multiples of 60°. Each family has a period (`p/2`, or `h` with two phases) along its normal.
+
+## Cell shapes
+Added in issue #10. The lattice above is the `Hexagon` lattice; the others follow the same pattern, with cells centred on integer indices and `Angle` and the anchor working the same way. Only three regular polygons tile the plane with an even web: the triangle, the square and the hexagon. Those three have lattice lines and snap. Circles and other polygons leave uneven gaps and have no lattice lines.
+
+- **`Square`:** axis-aligned squares of side `s` at `(i·p, j·p)`.
+  - **Side lines** at 0° and 90° lie at offsets `m·p ± s/2`. They run along cell sides and cut no cell.
+  - **Diagonal lines** at 45° and 135° run through cell centres, at offsets `m·p/√2`. They halve the cells they cross and clear the others by `w/√2`.
+  - Pieces are halves (one diagonal), or quarters and three-quarters at corners.
+- **`Triangle`:** equilateral triangles with inscribed radius `r = s/2`, pointing up and down alternately. Cell `(i, j)` is in row `j` and points up when `i + j` is even; up cell `(0, 0)` sits on the anchor. The cells are a triangle tiling with inscribed radius `rt = r + w/2`, each shrunk by `w/2`, so parallel sides of neighbours are `w` apart. The tiling has side `L = 2√3·rt` and row height `Ht = 3·rt`.
+  - **Lattice lines** are the cell sides, at 0°, 60° and 120°, at offsets `m·Ht + t ± w/2`, where the tiling line `t` is `−rt` for 0° and 120° and `+rt` for 60°. Unlike the hexagon's and the square's, these sets aren't symmetric under flipping the normal, so the code keeps line directions signed.
+  - **A triangle has no chord between two vertices that isn't a side, so triangle cells are only ever cut whole.**
+  - **Snapping costs up to a row:** the lines come in pairs `w` apart, one pair per row, so a field edge can snap inward by nearly `Ht − w` (8.1 at 5/1.2). The edge comes out clean. `Whole` keeps more of the drawn field, with a sawtooth edge.
+  - A field with edges in other directions, such as a rectangle's vertical sides, doesn't snap, so it acts as `Whole`.
+- **`Circle` and `Polygon`:** cells on a `Hexagonal` grid of centres (`(i·p·√3/2, i·p/2 + j·p)`, as for hexagons) or a `Square` one (`(i·p, j·p)`), with pitch `p = s + w`.
+  - Neighbouring circles are exactly `w` apart.
+  - Polygons are regular `Sides`-gons with inscribed diameter `s` and a flat at the bottom. A polygon whose flats face its neighbours, like an octagon on a square grid, has walls exactly `w` thick; where corners face each other, the wall is thinner.
+  - **No lattice lines:** `Snap` gives the same result as `Whole`, and `Free` clips exactly.
+  - Circles are tested in the core against their circumscribed 64-gon, which is conservative by 0.12% of the radius. They're cut as true circles.
+- **Old files:** `CellShape`, `Lattice` and `Sides` are added on restore with their defaults, so a file saved before them reopens as a hexagon grid with the same cut. The tests check this.
 
 ## Clipping
 The sketch is the limit: no mode ever cuts outside the field as drawn, or inside a keep-out as drawn. Fields are drawn where the cut may reach, e.g. inside a part's solid frame.
@@ -185,6 +207,15 @@ Tests run headless under `freecadcmd` with `mise run test`. The task points `FRE
   - `__version__` matching `package.xml`;
   - a performance smoke test.
 - **Two-part:** tray and lid bodies split through one field, against a single-body grid.
+- **Cell shapes** (`test_shapes.py`):
+  - for squares and triangles as well as hexagons: lattice lines cut cells only along chords, chords (and square and triangle sides) are lattice lines, and neighbours are exactly `w` apart;
+  - Whole mode against brute force for every lattice;
+  - square snapping (inward, through the web, along diagonals) and the random-field rule;
+  - triangle snapping, including the row it can cost;
+  - circles and polygons on both grids, and Snap behaving as Whole for them;
+  - the feature's volumes for each shape;
+  - editor modes, the `Sides` constraint and expressions;
+  - a file saved without the shape properties reopening unchanged.
 - **GUI** (`mise run test-gui`): full FreeCAD under Xvfb with its own `FREECAD_USER_HOME`, in three stages.
   - **headless:** open a file saved by `freecadcmd`. The HexGrid must get its view provider, icon and tree children, recompute after an edit, and leave no errors in the report view. Then build a HexGrid in the GUI and save the file from the GUI.
   - **reopen:** open the GUI-saved file. The body and its Tip must be visible and the sketch and base feature hidden, with no errors.
