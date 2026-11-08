@@ -5,6 +5,10 @@ set -euo pipefail
 #   HEXILATOR_SOURCE  repo URL or local path (default: the GitHub repo)
 #   HEXILATOR_REF     tag, branch or full commit SHA to check out (required, or pass it as $1)
 #   FREECAD_USER_DATA respected, as FreeCAD itself does
+# Run from a git hook, git's repo-local variables (GIT_DIR, GIT_INDEX_FILE, …) would point every
+# `git -C "$dest"` at the calling repo instead of the Mod checkout (issue #3), so clear them.
+# shellcheck disable=SC2046
+unset $(git rev-parse --local-env-vars)
 source="${HEXILATOR_SOURCE:-https://github.com/kazatronics/hexilator.git}"
 ref="${1:-${HEXILATOR_REF:?set HEXILATOR_REF or pass a tag, branch or commit SHA}}"
 freecadcmd="${FREECADCMD:-freecadcmd}"
