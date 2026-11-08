@@ -1,16 +1,25 @@
 # SPDX-License-Identifier: Apache-2.0
-"""View provider for HexGrid. The class name and module path are stored in documents."""
+"""View providers for HexGrid and HexGridPad. Their class names and module path are stored in
+documents: never rename them."""
 
 import os
 
 ICONS = os.path.join(os.path.dirname(__file__), "resources", "icons")
 ICON = os.path.join(ICONS, "Hexilator_HexGrid.svg")
+PAD_ICON = os.path.join(ICONS, "Hexilator_HexGridPad.svg")
 
 EDIT_DEFAULT = 0
 """Gui::ViewProvider::Default, the mode a double-click and setEdit(obj, 0) open."""
 
 
+def is_pad(obj):
+    """True for a HexGridPad (additive), false for a HexGrid (subtractive)."""
+    return obj.TypeId == "PartDesign::FeatureAdditivePython"
+
+
 class ViewProviderHexGrid:
+    icon = ICON
+
     def __init__(self, vobj):
         vobj.Proxy = self
         self.Object = vobj.Object
@@ -19,7 +28,7 @@ class ViewProviderHexGrid:
         self.Object = vobj.Object
 
     def getIcon(self):
-        return ICON
+        return self.icon
 
     def claimChildren(self):
         link = self.Object.Profile
@@ -58,11 +67,16 @@ class ViewProviderHexGrid:
         return None
 
 
+class ViewProviderHexGridPad(ViewProviderHexGrid):
+    icon = PAD_ICON
+
+
 def ensure_view_provider(obj):
     """Attach the view provider proxy if the object has a view object without one.
 
-    A file saved headless has no GUI data, so its HexGrids get their proxy here on restore.
+    A file saved headless has no GUI data, so its HexGrids and HexGridPads get their proxy
+    here on restore.
     """
     vobj = getattr(obj, "ViewObject", None)
     if vobj is not None and not isinstance(getattr(vobj, "Proxy", None), ViewProviderHexGrid):
-        ViewProviderHexGrid(vobj)
+        (ViewProviderHexGridPad if is_pad(obj) else ViewProviderHexGrid)(vobj)

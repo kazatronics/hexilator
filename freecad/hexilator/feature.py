@@ -16,8 +16,9 @@ from .core.geom import Arc, Loop, Seg
 
 TYPES = ("Dimension", "ThroughAll")
 
-# (type, name, default, doc); group "HexGrid"
-INPUTS = (
+# (type, name, default, doc); group "HexGrid". The lattice and field inputs, shared with the
+# HexGridPad feature (pad.py): same names, meanings and defaults, so the two can share a lattice.
+LATTICE_INPUTS = (
     ("App::PropertyLinkSub", "Profile", None,
      "Field sketch: outer loops are fields, inner loops keep-outs"),
     ("App::PropertyEnumeration", "CellShape", SHAPES,
@@ -38,6 +39,9 @@ INPUTS = (
     ("App::PropertyDistance", "AnchorY", 0.0, "A cell centre sits here (sketch Y)"),
     ("App::PropertyEnumeration", "ClipMode", MODES,
      "Snap: edges snap onto lattice lines; Whole: whole cells only; Free: clip exactly"),
+)
+
+INPUTS = LATTICE_INPUTS + (
     ("App::PropertyEnumeration", "Type", TYPES, "Dimension or ThroughAll, as for Pocket"),
     ("App::PropertyLength", "Depth", 3.0, "Cut depth for Type Dimension"),
     ("App::PropertyBool", "Reversed", False, "Cut along the sketch normal instead of against it"),
@@ -57,9 +61,9 @@ PROP_READONLY = 1
 PROP_OUTPUT = 8
 
 
-def _add_properties(obj):
+def _add_properties(obj, inputs=INPUTS):
     names = obj.PropertiesList
-    for typ, name, default, doc in INPUTS:
+    for typ, name, default, doc in inputs:
         if name in names:
             continue
         obj.addProperty(typ, name, "HexGrid", doc)
@@ -251,15 +255,7 @@ def _face(loops):
 
 def build_tool(obj, base_shape):
     """The cutting tool (a compound of prisms, in body coordinates) and the result counts."""
-    prof = _profile_object(obj)
-    local = _local_shape(prof)
-    lat_pl = lattice_placement(obj)
-    loops = profile_loops(local, lat_pl)
-    mode = obj.ClipMode
-    p = plan(loops, obj.CellSize.Value, obj.Web.Value, mode,
-             obj.CellShape, obj.Lattice, obj.Sides)
-    for w in p.warnings:
-        App.Console.PrintWarning("%s: %s\n" % (obj.Label, w))
+    prof, local, lat_pl, p = plan_grid(obj)
 
     if obj.Type == "ThroughAll":
         bb = base_shape.BoundBox
@@ -270,11 +266,42 @@ def build_tool(obj, base_shape):
             raise ValueError("HexGrid: Depth must be > 0")
     vec = App.Vector(0, 0, length if obj.Reversed else -length)
 
+    prisms, whole, partial, fallback, area = openings(p, local, lat_pl, vec)
+    if not prisms:
+        return Part.Shape(), (0, 0, 0, 0.0)
+    tool = Part.makeCompound(prisms)
+    tool.Placement = prof.Placement.multiply(lat_pl)
+    return tool, (whole, partial, fallback, area)
+
+
+def plan_grid(obj):
+    """The profile, its local shape, the lattice placement and the clipping plan for obj."""
+    prof = _profile_object(obj)
+    local = _local_shape(prof)
+    lat_pl = lattice_placement(obj)
+    loops = profile_loops(local, lat_pl)
+    p = plan(loops, obj.CellSize.Value, obj.Web.Value, obj.ClipMode,
+             obj.CellShape, obj.Lattice, obj.Sides)
+    for w in p.warnings:
+        App.Console.PrintWarning("%s: %s\n" % (obj.Label, w))
+    return prof, local, lat_pl, p
+
+
+def openings(p, local, lat_pl, vec=None, region_face=None):
+    """The cell openings of plan p, in the lattice frame.
+
+    Returns (shapes, whole, partial, fallback, area). The shapes are the openings' faces, or
+    their prisms when vec (the extrusion) is given; whole cells then share one extruded
+    template per cell shape. region_face is the field as drawn, in the lattice frame; it's
+    built when a Free clip needs it.
+    """
+    def ext(shape):
+        return shape if vec is None else shape.extrude(vec)
+
     lat = p.lattice
     cell_faces = {key: _cell_face(lat, key) for key in lat.keys()}
     templates = {}
-    region_face = None
-    prisms = []
+    shapes = []
     whole = partial = fallback = 0
     area = 0.0
     for pc in p.pieces:
@@ -282,32 +309,28 @@ def build_tool(obj, base_shape):
         key = lat.key(pc.i, pc.j)
         if pc.kind == "whole":
             if key not in templates:
-                templates[key] = cell_faces[key].extrude(vec)
-            prisms.append(templates[key].translated(App.Vector(cx, cy, 0)))
+                templates[key] = ext(cell_faces[key])
+            shapes.append(templates[key].translated(App.Vector(cx, cy, 0)))
             whole += 1
             area += pc.area
         elif pc.kind in ("exact", "fallback"):
-            prisms.append(_face(pc.loops).extrude(vec))
+            shapes.append(ext(_face(pc.loops)))
             partial += 1
             fallback += pc.kind == "fallback"
             area += pc.area
         else:  # free
             if region_face is None:
-                region_face = _region_face(local, lat_pl)
+                region_face = field_face(local, lat_pl)
             cellf = cell_faces[key].translated(App.Vector(cx, cy, 0))
             common = cellf.common(region_face)
             faces = [f for f in common.Faces if f.Area > 1e-9]
             if not faces:
                 continue
             for f in faces:
-                prisms.append(f.extrude(vec))
+                shapes.append(ext(f))
                 area += f.Area
             partial += 1
-    if not prisms:
-        return Part.Shape(), (0, 0, 0, 0.0)
-    tool = Part.makeCompound(prisms)
-    tool.Placement = prof.Placement.multiply(lat_pl)
-    return tool, (whole, partial, fallback, area)
+    return shapes, whole, partial, fallback, area
 
 
 def _cell_face(lat, key):
@@ -317,7 +340,7 @@ def _cell_face(lat, key):
     return _face([lat.outline(key)])
 
 
-def _region_face(local, lat_pl):
+def field_face(local, lat_pl):
     face = Part.makeFace(local.Wires, "Part::FaceMakerBullseye")
     face.transformShape(lat_pl.inverse().toMatrix(), True)
     return face
