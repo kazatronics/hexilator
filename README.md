@@ -33,7 +33,9 @@ An install is a git checkout at `<FreeCAD user data>/Mod/Hexilator`, which is `~
 ```sh
 HEXILATOR_REF=v0.1.0 mise run install
 # a local branch, before a release:
-HEXILATOR_SOURCE=~/Work/Parts/addons/hexilator/.repo HEXILATOR_REF=hexgrid mise run install
+HEXILATOR_SOURCE=~/Work/Parts/addons/hexilator/.repo HEXILATOR_REF=master mise run install
+# or pin one commit (a full 40-character SHA):
+HEXILATOR_SOURCE=~/Work/Parts/addons/hexilator/.repo HEXILATOR_REF=<sha> mise run install
 ```
 
 A file opened without the addon keeps its last shape and recomputes silently, so a missing addon is invisible. Projects that depend on it should check `freecad.hexilator.__version__`.
