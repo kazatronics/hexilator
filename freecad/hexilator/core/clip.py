@@ -3,7 +3,7 @@
 
 import math
 
-from .geom import EPS, Loop, Region, Seg, dot, dist, line_intersection, poly_area, \
+from .geom import EPS, Loop, Region, Seg, dot, dist, line_intersection, poly_area, sub, \
     poly_centroid, seg_hits_convex, union_tiles
 from .lattice import DEG30, Lattice
 
@@ -90,6 +90,45 @@ def _segments_meet(p0, p1, q0, q1):
     return False
 
 
+def _snapped_vertices(lines):
+    """Vertices of the loop bounded by the snapped lines (k, d, nl, c), in order.
+
+    Snapping can land neighbouring edges on the same line, or shrink an edge to nothing (a
+    small step between two edges that snap to one line). Those are merged or dropped, and the
+    rest re-intersected, until the loop is stable. Returns (vertices, None), or (None, reason)
+    when the loop really collapses: an edge reverses, or two neighbours end up parallel on
+    different lines.
+    """
+    lines = list(lines)
+    while True:
+        # neighbours on the same line become one edge
+        merged = True
+        while merged and len(lines) > 2:
+            merged = False
+            for k in range(len(lines)):
+                a, b = lines[k - 1], lines[k]
+                if a[0] == b[0] and abs(a[3] - b[3]) <= EPS:
+                    del lines[k]
+                    merged = True
+                    break
+        if len(lines) < 3:
+            return None, "collapses when snapped"
+        n = len(lines)
+        verts = []
+        for k in range(n):
+            q = line_intersection(lines[k - 1][2], lines[k - 1][3], lines[k][2], lines[k][3])
+            if q is None:
+                return None, "collapses when snapped"
+            verts.append(q)
+        lengths = [dot(sub(verts[(k + 1) % n], verts[k]), lines[k][1]) for k in range(n)]
+        if any(ln < -EPS for ln in lengths):
+            return None, "collapses when snapped"
+        zero = [k for k, ln in enumerate(lengths) if ln <= EPS]
+        if not zero:
+            return verts, None
+        del lines[zero[0]]  # its neighbours now meet directly; go round again
+
+
 def snap_loop(loop, lattice):
     """The loop with each edge moved onto the nearest lattice line on the region's side.
 
@@ -111,21 +150,12 @@ def snap_loop(loop, lattice):
         nl = (-d[1], d[0])  # left normal: points into the region
         mid = ((s.a[0] + s.b[0]) / 2, (s.a[1] + s.b[1]) / 2)
         c = lattice.snap_up(k % 6, dot(nl, mid), EPS)
-        lines.append((d, nl, c))
-    n = len(lines)
-    verts = []
-    for k in range(n):
-        q = line_intersection(lines[k - 1][1], lines[k - 1][2], lines[k][1], lines[k][2])
-        if q is None:
-            return None, "collapses when snapped"
-        verts.append(q)
-    new = []
-    for k in range(n):
-        a, b = verts[k], verts[(k + 1) % n]
-        d = lines[k][0]
-        if dot((b[0] - a[0], b[1] - a[1]), d) <= EPS:
-            return None, "collapses when snapped"
-        new.append(Seg(a, b, lattice=True))
+        lines.append((k, d, nl, c))
+    verts, why = _snapped_vertices(lines)
+    if verts is None:
+        return None, why
+    n = len(verts)
+    new = [Seg(verts[k], verts[(k + 1) % n], lattice=True) for k in range(n)]
     if not _simple(verts):
         return None, "self-intersects when snapped"
     out = Loop(new, curved=False)

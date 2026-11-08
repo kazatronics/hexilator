@@ -71,7 +71,8 @@ This is the user's rule (Trellis `CLAUDE.md`): one unbroken lattice with no miss
 1. **Snap the loops.** Take each loop made only of straight edges that run along a lattice-line direction (within an angle tolerance). Merge collinear neighbouring edges. Move each edge onto the nearest lattice line of its direction on the solid side: fields shrink and keep-outs grow, never the other way. The edges then get new vertices where neighbouring snapped edges meet. An edge already on a lattice line stays put.
    - With cell 5 and web 1.2, an edge moves at most 3.1 across the columns and 2.89 along them.
    - A loop that isn't snappable (it has an arc, a spline or an off-angle edge) is kept as drawn.
-   - A loop that collapses or self-intersects when snapped is also kept as drawn, with a warning.
+   - Edges that snap onto the same line merge, and an edge that shrinks to nothing (a small step between two edges that snap to one line) is dropped, so its neighbours meet directly.
+   - A loop that really collapses when snapped is also kept as drawn, with a warning. That means an edge reverses, two neighbouring edges end up parallel on different lines, or the loop self-intersects or loses its area.
 2. **Clip.** Call the snapped region S:
    - A cell entirely inside S is cut whole.
    - A cell crossed only by snapped edges is cut exactly to `cell ∩ S`. Every cut runs along one of the cell's vertex-to-vertex lines, because snapped edges lie on lattice lines. A corner of S inside a cell gives a two-cut piece, e.g. the 5/12 quadrilateral where a 0° edge and a 90° edge meet.
