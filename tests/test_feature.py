@@ -86,6 +86,27 @@ class FeatureTest(unittest.TestCase):
         self.assertTrue(g.Shape.isInside(App.Vector(20, 18, T / 2), 1e-6, True))
         self.assertTrue(g.Shape.isInside(App.Vector(23.9, 18, T / 2), 1e-6, True))
 
+    def test_circle_field_anchor_noise(self):
+        """Issue #5, Trellis's case: a circle field centred at y = -11.7 with the anchor at
+        -11.700000000000003 (spreadsheet arithmetic) cuts the same cells as an exact anchor."""
+        doc = h.new_doc("circ")
+        try:
+            body, box = h.plate(doc, 100, 100, T, x=-60, y=-60)
+            sk = h.sketch(body, z=T)
+            h.add_circle(sk, -9.0, -11.7, 26.4)
+            g = hx.make_hex_grid(body, sk, AnchorX=-9.0, AnchorY=-11.7)
+            doc.recompute()
+            exact = (g.WholeCells, g.PartialCells, g.FallbackCells, round(g.OpenArea.Value, 6))
+            g.AnchorY = -11.700000000000003
+            doc.recompute()
+            self.assertNotIn("Invalid", g.State)
+            self.assertEqual((g.WholeCells, g.PartialCells, g.FallbackCells,
+                              round(g.OpenArea.Value, 6)), exact)
+            # the cell at the anchor is cut
+            self.assertFalse(g.Shape.isInside(App.Vector(-9.0, -11.7, T / 2), 1e-6, True))
+        finally:
+            App.closeDocument(doc.Name)
+
     def test_angle_30(self):
         g = self.grid(Angle=30)
         self.assertGood(g)

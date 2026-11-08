@@ -108,6 +108,43 @@ class GeomTest(unittest.TestCase):
         self.assertFalse(reg.contains((0, 2.01)))
         self.assertAlmostEqual(circle(0, 0, 2).signed_area(), 4 * math.pi)
 
+    def test_circle_seam(self):
+        """Issue #5: points at the height of a circle's seam (where its two half arcs meet)
+        must not read as outside when the centre is off by float noise."""
+        r = 26.4
+        for cy in (0.0, 1e-15, -1e-15, 3.552713678800501e-15, -3.55e-15, 1e-13, -1e-12, 1e-12):
+            lp = circle(0.0, cy, r)
+            for dy in (0.0, 1e-16, -1e-16, 1e-15, -1e-15, 7e-15, -7e-15, 1e-12, -1e-12):
+                for x in (-r + 1e-6, -20.0, 0.0, 20.0, r - 1e-6):
+                    p = (x, cy + dy)
+                    self.assertTrue(lp.contains(p), "circle cy=%r: %r reads outside" % (cy, p))
+                for x in (-r - 1e-6, r + 1e-6):
+                    self.assertFalse(lp.contains((x, cy + dy)))
+
+    def test_joints_are_welded(self):
+        """A rounded rectangle whose arc ends miss the straight edges by float noise: every
+        joint becomes one exact point, and containment matches the exact shape near the
+        joints' heights."""
+        r = 3.0
+        q = math.pi / 2
+        noise = 1e-9
+        prims = [Seg((r, 0.0), (20 - r, 0.0)),
+                 Arc((20 - r, r), r, -q, q),
+                 Seg((20.0, r + noise), (20.0, 10 - r)),
+                 Arc((20 - r, 10 - r), r, 0.0, q),
+                 Seg((20 - r - noise, 10.0), (r, 10.0)),
+                 Arc((r, 10 - r), r, q, q),
+                 Seg((0.0, 10 - r), (0.0, r - noise)),
+                 Arc((r, r), r, math.pi, q)]
+        lp = Loop(prims)
+        for k, p in enumerate(lp.prims):
+            self.assertEqual(p.start, lp.prims[k - 1].end)
+        for y in (r, r + 1e-15, r - 1e-15, 10 - r, 10 - r + 1e-15, 10 - r - 1e-15):
+            self.assertTrue(lp.contains((10.0, y)))
+            self.assertTrue(lp.contains((0.5, y)))
+            self.assertFalse(lp.contains((-0.5, y)))
+            self.assertFalse(lp.contains((20.5, y)))
+
     def test_arc_hits(self):
         arc = Arc((0, 0), 2, 0.0, math.pi / 2)  # quarter in the first quadrant
         self.assertTrue(arc.hits_convex([(1, 1), (3, 1), (3, 3), (1, 3)]))
@@ -214,6 +251,17 @@ class PlanTest(unittest.TestCase):
             if pc.kind == "fallback":
                 self.assertTrue(any(abs(pc.area / CELL_AREA - f) < 1e-9
                                     for f in (5 / 6, 0.5, 1 / 6)))
+
+    def test_circle_field_off_a_row_by_noise(self):
+        """Issue #5: a circle field centred a hair off a lattice row keeps that row. Sweeps the
+        centre around rows through even columns (y = 0) and odd columns (y = p/2)."""
+        for row_y in (0.0, P / 2):
+            ref = plan([circle(0.0, row_y, 26.4)], S, W)
+            for d in (1e-15, -1e-15, 3.552713678800501e-15, -3.552713678800501e-15, 1e-13,
+                      -1e-13, 1e-12, -1e-12):
+                p = plan([circle(0.0, row_y + d, 26.4)], S, W)
+                self.assertEqual(counts(p), counts(ref), "row %g, centre off by %g" % (row_y, d))
+                self.assertAlmostEqual(total_area(p), total_area(ref), places=6)
 
     def test_bad_mode(self):
         with self.assertRaises(ValueError):
