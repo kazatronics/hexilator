@@ -16,7 +16,9 @@ A FreeCAD addon for parametric hex grids: honeycomb vents and fan covers that cu
 - Every property takes expressions, so a grid can be driven from a spreadsheet.
 
 ## Use
-There's no toolbar command yet. Create a grid from Python:
+In PartDesign, select the field sketch and click **Hex Grid**, on the Hexilator toolbar or at the end of the Part Design menu. The task panel previews the grid as you edit it. Double-click a grid to edit it again.
+
+From Python:
 
 ```python
 from freecad.hexilator import make_hex_grid, __version__
