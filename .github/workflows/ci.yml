@@ -1,0 +1,57 @@
+# Lint and test, with the same mise tasks as local runs. Pushes to master run this through
+# release.yml instead.
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches-ignore: [master]
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: jdx/mise-action@v5
+
+      - name: Install Xvfb and the libraries FreeCAD's GUI needs
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends xvfb xauth libgl1 libegl1 \
+            libxkbcommon-x11-0 libxcb-cursor0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 \
+            libxcb-randr0 libxcb-render-util0 libxcb-shape0 libxcb-xinerama0 libfontconfig1 \
+            libdbus-1-3
+
+      - name: Cache FreeCAD
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/hexilator
+          key: freecad-1.1.4-linux-x86_64
+
+      - name: Fetch FreeCAD 1.1.4
+        run: |
+          dir="$(mise run fetch-freecad)"
+          bin="$RUNNER_TEMP/freecad-bin"
+          mkdir -p "$bin"
+          printf '#!/bin/sh\nexec "%s/AppRun" freecadcmd "$@"\n' "$dir" > "$bin/freecadcmd"
+          printf '#!/bin/sh\nexec "%s/AppRun" "$@"\n' "$dir" > "$bin/freecad"
+          chmod +x "$bin/freecadcmd" "$bin/freecad"
+          {
+            echo "FREECADCMD=$bin/freecadcmd"
+            echo "FREECAD=$bin/freecad"
+          } >> "$GITHUB_ENV"
+
+      - name: Lint
+        run: mise run lint
+
+      - name: Tests
+        run: mise run test
+
+      - name: GUI test
+        run: mise run test-gui
