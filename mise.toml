@@ -1,0 +1,8 @@
+# Hexilator toolchain. All tool versions are pinned here.
+#
+# Not in mise: FreeCAD (a system package). The addon and its tests run under the Python that
+# FreeCAD is built for.
+#
+# Tasks are file tasks in mise-tasks/, never inline [tasks] here.
+
+[tools]

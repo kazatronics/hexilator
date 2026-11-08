@@ -1,0 +1,10 @@
+# FreeCAD backups
+*.FCBak
+*.FCStd1
+
+# Tooling dependencies and build output: never commit these.
+.venv/
+__pycache__/
+*.pyc
+build/
+dist/
