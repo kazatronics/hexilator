@@ -131,6 +131,23 @@ class FeatureTest(unittest.TestCase):
         self.assertGood(g)
         self.assertNotEqual(round(g.Shape.Volume, 6), ref[2])
 
+    def test_sandwich_core(self):
+        """The README's honeycomb sandwich: a field sketch inside the plate, cut down by the
+        core thickness, leaves sealed voids between two intact skins."""
+        App.closeDocument(self.doc.Name)
+        self.doc = h.new_doc("sandwich")
+        self.body, self.box = h.plate(self.doc, 40, 40, 5.0, x=-8, y=-8)  # skins 1 + core 3 + 1
+        g = self.grid(z=4.0, Depth=3.0)
+        self.assertGood(g)
+        sh = g.Shape
+        self.assertAlmostEqual(self.removed(g), ALIGNED_AREA * 3.0, places=4)
+        self.assertEqual(len(sh.Solids[0].Shells), 1 + ALIGNED_WHOLE + ALIGNED_PARTIAL)
+        self.assertAlmostEqual(sh.BoundBox.ZMin, 0.0, places=9)  # both skins stay
+        self.assertAlmostEqual(sh.BoundBox.ZMax, 5.0, places=9)
+        for z in (0.5, 4.5):  # no opening through either skin
+            sl = sh.slice(App.Vector(0, 0, 1), z)
+            self.assertEqual(len(sl), 1, "skin at z=%g has %d wires" % (z, len(sl)))
+
     def test_depth_type_reversed(self):
         g = self.grid(Depth=1.0)
         self.assertAlmostEqual(self.removed(g), ALIGNED_AREA * 1.0, places=4)
@@ -233,6 +250,23 @@ class VersionTest(unittest.TestCase):
             m = re.search(r"<version>([^<]+)</version>", f.read())
         self.assertEqual(hx.__version__, m.group(1))
         self.assertRegex(hx.__version__, r"^\d+\.\d+\.\d+$")
+
+    def test_manifest(self):
+        """package.xml has what the FreeCAD Addon Index requires, naming master on master."""
+        import xml.etree.ElementTree as ET
+        root = os.environ["HEXILATOR_ROOT"]
+        ns = {"p": "https://wiki.freecad.org/Package_Metadata"}
+        pkg = ET.parse(os.path.join(root, "package.xml")).getroot()
+        for tag in ("name", "description", "version", "date", "maintainer", "license", "icon",
+                    "freecadmin", "pythonmin"):
+            self.assertIsNotNone(pkg.find("p:" + tag, ns), tag)
+        self.assertEqual(pkg.find("p:license", ns).text, "Apache-2.0")
+        self.assertTrue(os.path.isfile(os.path.join(root, pkg.find("p:license", ns).get("file"))))
+        urls = {u.get("type"): u for u in pkg.findall("p:url", ns)}
+        self.assertEqual(urls["repository"].get("branch"), "master")
+        self.assertIn("/master/", urls["readme"].text)
+        self.assertIsNotNone(pkg.find("p:content/p:other", ns))
+        self.assertIn("partdesign", [d.text for d in pkg.findall("p:depend", ns)])
 
     def test_icons_exist(self):
         """package.xml's icon, the view provider's and the command's are all on disk."""

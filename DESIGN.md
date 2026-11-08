@@ -153,7 +153,7 @@ Follows current FreeCAD addon practice (the Addon Academy, `FreeCAD/Addon-Templa
 ## Packaging, install and detection
 - **Layout:** `package.xml` and `freecad/hexilator/` (a namespace package) at the repo root. The repo root is the addon folder.
 - **Restore check:** FreeCAD 1.1.4 imports a proxy's module during document restore only if it comes from an installed addon (a `Mod` folder); being on `sys.path` is not enough. A proxy in `freecad.<name>.<module>` passes, verified 2026-11-08.
-- **Version:** `package.xml`'s `<version>` is the single source. `freecad.hexilator.__version__` reads it at import, so the two can't differ; a test checks the format. On master it stays `0.0.0`. Each release tag `vX.Y.Z` points at a release commit off master that sets it, so a checkout of the tag reports `__version__ == "X.Y.Z"` (see Development process).
+- **Version:** `package.xml`'s `<version>` is the single source. `freecad.hexilator.__version__` reads it at import, so the two can't differ; a test checks the format. On master it stays `0.0.0`. Each release tag `vX.Y.Z` points at a release commit that sets it, and so does the `release` branch at the latest release, so a checkout of either reports `__version__ == "X.Y.Z"` (see Development process).
 - **Install:** an install is a git checkout of a ref (a tag, a branch or a full commit SHA) at `<user data>/Mod/Hexilator`.
   - The user data dir is `FreeCAD.getUserAppDataDir()`: `~/.local/share/FreeCAD/v1-1/` here, or `$FREECAD_USER_DATA` when that's set.
   - `mise-tasks/install` does it. It clones, or fetches and checks out, and skips the work when the checkout is already at the ref.
@@ -180,9 +180,22 @@ Set by the user on 2026-11-08: conventional commits, CI and automated releases (
   - **FreeCAD:** the official 1.1.4 AppImage, extracted and checked against its SHA256 file by `mise run fetch-freecad`. CI uses the same mise tasks as local runs.
 - **Releases** (`.github/workflows/release.yml`, on pushes to master, i.e. merged PRs), after CI passes:
   1. `mathieudutour/github-tag-action@v7` in dry-run mode computes the next version and its changelog from the conventional commits since the last tag. It uses `default_bump: false`, so `chore:`, `docs:`, `test:` and `ci:` alone don't release. With no tags yet, the first `feat:` gives v0.1.0.
-  2. A **release commit** `chore(release): vX.Y.Z` sets `<version>` and `<date>` in `package.xml`. Its parent is the master commit being released. It is made with the GitHub git-data API and is **not on any branch**: master stays protected and untouched, and the commit is reachable only through its tag. The API makes it as the workflow's own identity, so no address is written into the repo.
+  2. A **release commit** `chore(release): vX.Y.Z`:
+     - It has master's tree, except `package.xml`, which gets the version and date, and names the `release` branch in place of `master` (the repository's `branch` and the readme and documentation URLs).
+     - Its parents are the master commit being released and the `release` branch's previous head (only the master commit for the first release after v0.3.0). So the `release` branch only ever fast-forwards.
+     - It is made with the GitHub git-data API, so master stays protected and untouched. The API makes it as the workflow's own identity, so no address is written into the repo.
   3. The tag action tags the release commit `vX.Y.Z` (`custom_tag`, `commit_sha`).
-  4. `gh release create` publishes the GitHub release with the changelog.
+  4. The **`release` branch** is moved to the release commit, as a fast-forward. A ruleset blocks its deletion and force pushes. Releases up to v0.3.0 are reachable only through their tags.
+  5. `gh release create` publishes the GitHub release with the changelog.
+
+## FreeCAD Addon Index
+Preparation is issue #11 (research, 2026-11-08: the Addon Academy at freecad.github.io/Addon-Academy, the `FreeCAD/Addons` index, and the `FreeCAD/Addon-Template` cookiecutter). **Submission waits for the user's approval.** The repo must also be at least 30 days old (created 2026-11-08).
+- **Index:** since FreeCAD 1.0 it's `Data/Index.json` in github.com/FreeCAD/Addons; the old `FreeCAD-addons` repo serves FreeCAD before 1.0 only. You submit with an "Addon - Addition" issue there, and a FreeCAD team member reviews it.
+- **Channel:** the index will install from the **`release` branch**, which always holds the latest release with its real version. So a release needs no index PR, and the Addon Manager sees updates through `<version>`.
+- **Manifest:** `package.xml` follows the Academy's example for a workbench-less addon (`<content><other/></content>`), with `freecadmin` 1.1.0, `pythonmin` 3.10, a raw readme URL, tags and `<depend type="internal">partdesign</depend>`. A test checks the required fields.
+- **Repo topics:** `freecad`, `addon`, `freecad-addon`.
+- **Bandit:** the index scans listed addons with Bandit, so `mise run lint` runs it (pinned in `mise.toml`) on `freecad/`.
+- **The index's "confine side effects to your own workbench" rule:** Hexilator adds a toolbar and menu entries to PartDesign with a workbench manipulator, the way the Academy's manipulator guide shows. It doesn't remove, hide or rearrange anything of FreeCAD's. Reviewers accepted another addon that extends PartDesign this way.
 
 ## Tests
 Tests run headless under `freecadcmd` with `mise run test`. The task points `FREECAD_USER_DATA` at a temporary folder with `Mod/Hexilator` linked to the worktree. Tests use `unittest`. `freecadcmd` exits 0 even when a script raises, so the runner sets its own exit code.

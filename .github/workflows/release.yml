@@ -1,6 +1,7 @@
 # On pushes to master (merged PRs): test, then compute the next version from the conventional
-# commits, make a release commit off master that writes it into package.xml, tag that commit
-# vX.Y.Z and publish a GitHub release (DESIGN.md, Development process).
+# commits, make a release commit that writes it into package.xml, tag that commit vX.Y.Z,
+# fast-forward the release branch to it and publish a GitHub release (DESIGN.md, Development
+# process). The FreeCAD Addon Index installs from the release branch.
 name: Release
 
 on:
@@ -42,23 +43,32 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           VERSION: ${{ steps.next.outputs.new_version }}
         run: |
+          # package.xml on the release branch names that branch: its version, its date, and
+          # its repository, readme and documentation URLs.
           sed -i -E \
             -e "s|<version>[^<]*</version>|<version>${VERSION}</version>|" \
-            -e "s|<date>[^<]*</date>|<date>$(date -u +%F)</date>|" package.xml
-          # A commit on top of the released master commit, on no branch: only the tag points
-          # at it, so protected master is untouched. The git-data API commits as the
-          # workflow's own identity.
+            -e "s|<date>[^<]*</date>|<date>$(date -u +%F)</date>|" \
+            -e 's|branch="master"|branch="release"|' \
+            -e 's|/master/|/release/|g' package.xml
+          # The release commit has master's tree (plus package.xml) and two parents: the
+          # released master commit and the release branch's previous head, so the release
+          # branch only ever fast-forwards. Master itself is untouched. The git-data API
+          # commits as the workflow's own identity.
           repo="repos/${GITHUB_REPOSITORY}"
+          prev="$(gh api "$repo/git/ref/heads/release" --jq .object.sha 2>/dev/null || true)"
+          parents="$(jq -nc --arg a "$GITHUB_SHA" --arg b "$prev" \
+            '[$a] + (if $b == "" then [] else [$b] end)')"
           base_tree="$(gh api "$repo/git/commits/${GITHUB_SHA}" --jq .tree.sha)"
           blob="$(jq -n --arg c "$(base64 -w0 package.xml)" '{content: $c, encoding: "base64"}' \
             | gh api "$repo/git/blobs" --input - --jq .sha)"
           tree="$(jq -n --arg b "$base_tree" --arg s "$blob" \
             '{base_tree: $b, tree: [{path: "package.xml", mode: "100644", type: "blob", sha: $s}]}' \
             | gh api "$repo/git/trees" --input - --jq .sha)"
-          sha="$(jq -n --arg m "chore(release): v${VERSION}" --arg t "$tree" --arg p "$GITHUB_SHA" \
-            '{message: $m, tree: $t, parents: [$p]}' \
+          sha="$(jq -n --arg m "chore(release): v${VERSION}" --arg t "$tree" \
+            --argjson p "$parents" '{message: $m, tree: $t, parents: $p}' \
             | gh api "$repo/git/commits" --input - --jq .sha)"
           echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          echo "prev=$prev" >> "$GITHUB_OUTPUT"
 
       - name: Tag
         if: steps.next.outputs.new_version != ''
@@ -67,6 +77,20 @@ jobs:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           custom_tag: ${{ steps.next.outputs.new_version }}
           commit_sha: ${{ steps.commit.outputs.sha }}
+
+      - name: Release branch
+        if: steps.next.outputs.new_version != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SHA: ${{ steps.commit.outputs.sha }}
+          PREV: ${{ steps.commit.outputs.prev }}
+        run: |
+          repo="repos/${GITHUB_REPOSITORY}"
+          if [ -n "$PREV" ]; then
+            gh api -X PATCH "$repo/git/refs/heads/release" -f sha="$SHA" -F force=false >/dev/null
+          else
+            gh api "$repo/git/refs" -f ref=refs/heads/release -f sha="$SHA" >/dev/null
+          fi
 
       - name: GitHub release
         if: steps.next.outputs.new_version != ''

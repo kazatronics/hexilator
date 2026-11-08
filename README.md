@@ -2,7 +2,7 @@
 
 A FreeCAD addon for parametric hex grids: honeycomb vents and fan covers that cut cleanly into a part.
 
-**Status:** v0.1 in development. The design and its decisions are in [DESIGN.md](DESIGN.md).
+**Status:** released on GitHub. Each release is tagged `vX.Y.Z`, and the `release` branch holds the latest. Not yet in FreeCAD's Addon Manager. The design and its decisions are in [DESIGN.md](DESIGN.md).
 
 ## Goals
 - A PartDesign feature that cuts a hex grid into a body, like a Pocket.
@@ -30,13 +30,16 @@ square = make_hex_grid(body, sketch2, CellShape="Square", CellSize=4, Web=1)
 holes = make_hex_grid(body, sketch3, CellShape="Circle", Lattice="Hexagonal", CellSize=3)
 ```
 
+**Honeycomb sandwich** (two solid skins with a honeycomb core): pad the full sheet, put the field sketch inside it at the top of the core layer, and give the grid `Depth` equal to the core's thickness. The cells become sealed voids between the skins. An additive Hex Grid Pad is planned (issue #14).
+
 The sketch's outer loops are the fields and its inner loops are keep-outs. `ClipMode` is `Snap` (the default), `Whole` or `Free`. The read-only properties `WholeCells`, `PartialCells`, `FallbackCells`, `OpenArea` and `Version` report the result. See [DESIGN.md](DESIGN.md) for every property.
 
 ## Install
 An install is a git checkout at `<FreeCAD user data>/Mod/Hexilator`, which is `~/.local/share/FreeCAD/v1-1/Mod/Hexilator` for FreeCAD 1.1 on Linux. FreeCAD only restores the feature's code from a Mod folder, so a copy that is merely on `sys.path` doesn't work. From a clone of this repo:
 
 ```sh
-HEXILATOR_REF=v0.1.0 mise run install
+HEXILATOR_REF=v0.3.0 mise run install    # a release tag (pinned)
+HEXILATOR_REF=release mise run install   # the latest release
 # a local branch, before a release:
 HEXILATOR_SOURCE=~/Work/Parts/addons/hexilator/.repo HEXILATOR_REF=master mise run install
 # or pin one commit (a full 40-character SHA):
@@ -45,10 +48,20 @@ HEXILATOR_SOURCE=~/Work/Parts/addons/hexilator/.repo HEXILATOR_REF=<sha> mise ru
 
 A file opened without the addon keeps its last shape and recomputes silently, so a missing addon is invisible. Projects that depend on it should check `freecad.hexilator.__version__`.
 
+## Limitations
+- FreeCAD 1.1 or later.
+- Only straight edges in lattice directions snap. A loop with an arc, a spline or an off-angle edge (e.g. a round keep-out, or a rounded rectangle) keeps its drawn shape. Its boundary cells get the largest single-chord piece that fits, and are counted in `FallbackCells`.
+- Triangles: a field edge can snap inward by nearly a whole row, and a rectangular field doesn't snap at all (its vertical edges aren't triangle-lattice directions). Circles and polygons have no lattice lines, so `Snap` acts as `Whole`.
+- Large grids are slow: one cut of all the cells takes about 5 s for 500 hexagons and 18 s for 1000, growing roughly quadratically. The task panel previews after a short pause.
+- No sketch output yet, and no translations shipped (the strings are marked for translation).
+
+## Compared with HexFill
+[HexFill](https://github.com/Clientik/FreeCAD-HexFill) writes a one-shot, unconstrained sketch of hexagons for you to Pocket. Hexilator is a parametric PartDesign feature: it recomputes when the field sketch, its properties or a spreadsheet change, snaps the field's edges to the lattice so the edge cells are cut cleanly, pins the lattice with an anchor so grids on separate parts line up, and offers square, triangle, circle and polygon cells.
+
 ## Development
 - `mise run test`: the test suite, headless under `freecadcmd`.
 - `mise run test-gui`: the GUI test, in full FreeCAD under Xvfb.
-- `mise run lint`: the workflows (actionlint) and task scripts (shellcheck).
+- `mise run lint`: the workflows (actionlint), the task scripts (shellcheck) and the Python (Bandit).
 - `mise run shot -- file.FCStd out.png`: a screenshot, off-screen.
 
 Commits follow [Conventional Commits](https://www.conventionalcommits.org). Releases are tagged automatically from them; see DESIGN.md, Development process.

@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
-#MISE description="Lint the GitHub workflows (actionlint) and the mise task scripts (shellcheck)"
+#MISE description="Lint: workflows (actionlint), task scripts (shellcheck) and the addon's Python (Bandit, as the FreeCAD Addon Index scans it)"
 set -euo pipefail
 root="${MISE_PROJECT_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 cd "$root"
 actionlint
 shellcheck mise-tasks/*
+bandit -q -r freecad
