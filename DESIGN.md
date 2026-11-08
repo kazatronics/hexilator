@@ -111,10 +111,10 @@ The feature knows only its field, not the body. A field drawn past the body's ed
 - **Layout:** `package.xml` and `freecad/hexilator/` (a namespace package) at the repo root. The repo root is the addon folder.
 - **Restore check:** FreeCAD 1.1.4 imports a proxy's module during document restore only if it comes from an installed addon (a `Mod` folder); being on `sys.path` is not enough. A proxy in `freecad.<name>.<module>` passes, verified 2026-11-08.
 - **Version:** `package.xml`'s `<version>` is the single source. `freecad.hexilator.__version__` reads it at import, so the two can't differ; a test checks the format. Releases are git tags `vX.Y.Z` on GitHub, made by the release workflow (see Development process), which writes the version into `package.xml` on the commit it tags. So a checkout of tag `vX.Y.Z` reports `__version__ == "X.Y.Z"`. Between releases, master reports the last released version.
-- **Install:** an install is a git checkout of a ref at `<user data>/Mod/Hexilator`.
+- **Install:** an install is a git checkout of a ref (a tag, a branch or a full commit SHA) at `<user data>/Mod/Hexilator`.
   - The user data dir is `FreeCAD.getUserAppDataDir()`: `~/.local/share/FreeCAD/v1-1/` here, or `$FREECAD_USER_DATA` when that's set.
   - `mise-tasks/install` does it. It clones, or fetches and checks out, and skips the work when the checkout is already at the ref.
-  - Source overrides: `HEXILATOR_SOURCE` (default `https://github.com/kazatronics/hexilator.git`; may be a local path such as `~/Work/Parts/addons/hexilator/.repo`) and `HEXILATOR_REF` (a tag or branch). These let Trellis test an untagged branch before a release.
+  - Source overrides: `HEXILATOR_SOURCE` (default `https://github.com/kazatronics/hexilator.git`; may be a local path such as `~/Work/Parts/addons/hexilator/.repo`) and `HEXILATOR_REF` (a tag, a branch, which is followed to its latest commit, or a full 40-character commit SHA, which pins one commit before tags exist). These let Trellis test an untagged branch before a release.
 - **Detection:** a file opened without the addon keeps its last shape, with `Proxy = None`, and recomputes silently with no error. A missing addon is therefore invisible. A user's tests should check `freecad.hexilator.__version__` against their pin; Trellis's do. Each feature also records `Version`.
 
 ## Development process
