@@ -37,6 +37,12 @@ ENUM_TEXT = {
     "Free": QtCore.QT_TRANSLATE_NOOP("Hexilator", "Clip exactly"),
     "Dimension": QtCore.QT_TRANSLATE_NOOP("Hexilator", "Dimension"),
     "ThroughAll": QtCore.QT_TRANSLATE_NOOP("Hexilator", "Through all"),
+    "Hexagon": QtCore.QT_TRANSLATE_NOOP("Hexilator", "Hexagon"),
+    "Square": QtCore.QT_TRANSLATE_NOOP("Hexilator", "Square"),
+    "Triangle": QtCore.QT_TRANSLATE_NOOP("Hexilator", "Triangle"),
+    "Circle": QtCore.QT_TRANSLATE_NOOP("Hexilator", "Circle"),
+    "Polygon": QtCore.QT_TRANSLATE_NOOP("Hexilator", "Polygon"),
+    "Hexagonal": QtCore.QT_TRANSLATE_NOOP("Hexilator", "Hexagonal"),
 }
 
 
@@ -101,6 +107,14 @@ class HexGridTaskPanel:
 
         grid = QtWidgets.QFormLayout()
         loader = Gui.UiLoader()
+        self.shape = self._combo("CellShape")
+        grid.addRow(translate("Hexilator", "Shape") + ":", self.shape)
+        self.lattice = self._combo("Lattice")
+        grid.addRow(translate("Hexilator", "Lattice") + ":", self.lattice)
+        self.sides = loader.createWidget("Gui::IntSpinBox")
+        self.sides.setRange(3, 64)
+        self.sides.setToolTip(self.obj.getDocumentationOfProperty("Sides"))
+        grid.addRow(translate("Hexilator", "Sides") + ":", self.sides)
         self.quantities = {}
         self.bindings = []
         for prop, label, unit, minimum in QUANTITIES:
@@ -146,7 +160,14 @@ class HexGridTaskPanel:
             b.setAutoApply(True)  # an expression set in the f(x) editor applies at once
             self.bindings.append(b)
             w.valueChanged.connect(lambda _q, p=prop, w=w: self._quantity_changed(p, w))
-        for prop, c in (("ClipMode", self.clip), ("Type", self.type)):
+        self.sides.setValue(obj.Sides)
+        b = Gui.ExpressionBinding(self.sides)
+        b.bind(obj, "Sides")
+        b.setAutoApply(True)
+        self.bindings.append(b)
+        self.sides.valueChanged.connect(self._sides_changed)
+        for prop, c in (("CellShape", self.shape), ("Lattice", self.lattice),
+                        ("ClipMode", self.clip), ("Type", self.type)):
             c.setCurrentIndex(c.findData(getattr(obj, prop)))
             c.currentIndexChanged.connect(lambda _i, p=prop, c=c: self._set(p, c.currentData()))
         self.reversed.setChecked(obj.Reversed)
@@ -164,6 +185,9 @@ class HexGridTaskPanel:
 
     def _update_enabled(self):
         self.quantities["Depth"].setEnabled(self.obj.Type == "Dimension")
+        shape = self.obj.CellShape
+        self.lattice.setEnabled(shape in ("Circle", "Polygon"))
+        self.sides.setEnabled(shape == "Polygon")
 
     def _update_results(self):
         obj = self.obj
@@ -184,10 +208,16 @@ class HexGridTaskPanel:
         self._set(prop, App.Units.Quantity(w.property("rawValue"),
                                            getattr(self.obj, prop).Unit))
 
+    def _sides_changed(self, value):
+        if _has_expression(self.obj, "Sides"):
+            self.schedule()
+            return
+        self._set("Sides", int(value))
+
     def _set(self, prop, value):
         if getattr(self.obj, prop) != value:
             setattr(self.obj, prop, value)
-        if prop == "Type":
+        if prop in ("Type", "CellShape"):
             self._update_enabled()
         self.schedule()
 

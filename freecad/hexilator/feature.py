@@ -11,6 +11,7 @@ import Part
 
 from . import __version__
 from .core.clip import MODES, plan
+from .core.lattice import GRIDS, SHAPES
 from .core.geom import Arc, Loop, Seg
 
 TYPES = ("Dimension", "ThroughAll")
@@ -19,8 +20,18 @@ TYPES = ("Dimension", "ThroughAll")
 INPUTS = (
     ("App::PropertyLinkSub", "Profile", None,
      "Field sketch: outer loops are fields, inner loops keep-outs"),
-    ("App::PropertyLength", "CellSize", 5.0, "Cell width across flats"),
-    ("App::PropertyLength", "Web", 1.2, "Wall between neighbouring cells (> 0)"),
+    ("App::PropertyEnumeration", "CellShape", SHAPES,
+     "Hexagon, Square or Triangle (these tile and snap), Circle or Polygon (Whole and Free "
+     "only; see Lattice and Sides)"),
+    ("App::PropertyLength", "CellSize", 5.0,
+     "Inscribed-circle diameter: across flats for a hexagon, the side of a square, the "
+     "diameter of a circle"),
+    ("App::PropertyLength", "Web", 1.2,
+     "Gap between neighbouring cells (> 0); for polygons, between their inscribed circles"),
+    ("App::PropertyEnumeration", "Lattice", GRIDS,
+     "Centre grid for Circle and Polygon cells; the other shapes have their own"),
+    ("App::PropertyIntegerConstraint", "Sides", (8, 3, 64, 1),
+     "Number of sides of a Polygon cell (3 to 64)"),
     ("App::PropertyAngle", "Angle", 0.0,
      "Lattice rotation about the anchor; 0 = flat-top (flats parallel to sketch X)"),
     ("App::PropertyDistance", "AnchorX", 0.0, "A cell centre sits here (sketch X)"),
@@ -60,6 +71,19 @@ def _add_properties(obj):
     for typ, name, doc in OUTPUTS:
         if name not in names:
             obj.addProperty(typ, name, "Result", doc, PROP_READONLY | PROP_OUTPUT)
+    _update_editor_modes(obj)
+
+
+EDITOR_HIDDEN = 2
+
+
+def _update_editor_modes(obj):
+    """Show Lattice only for Circle and Polygon cells, and Sides only for Polygon."""
+    shape = getattr(obj, "CellShape", "Hexagon")
+    for name, shown in (("Lattice", shape in ("Circle", "Polygon")),
+                        ("Sides", shape == "Polygon")):
+        if hasattr(obj, name):
+            obj.setEditorMode(name, 0 if shown else EDITOR_HIDDEN)
 
 
 class HexGrid:
@@ -68,6 +92,10 @@ class HexGrid:
     def __init__(self, obj):
         obj.Proxy = self
         _add_properties(obj)
+
+    def onChanged(self, obj, prop):
+        if prop == "CellShape":
+            _update_editor_modes(obj)
 
     def onDocumentRestored(self, obj):
         _add_properties(obj)
@@ -228,7 +256,8 @@ def build_tool(obj, base_shape):
     lat_pl = lattice_placement(obj)
     loops = profile_loops(local, lat_pl)
     mode = obj.ClipMode
-    p = plan(loops, obj.CellSize.Value, obj.Web.Value, mode)
+    p = plan(loops, obj.CellSize.Value, obj.Web.Value, mode,
+             obj.CellShape, obj.Lattice, obj.Sides)
     for w in p.warnings:
         App.Console.PrintWarning("%s: %s\n" % (obj.Label, w))
 
@@ -242,15 +271,19 @@ def build_tool(obj, base_shape):
     vec = App.Vector(0, 0, length if obj.Reversed else -length)
 
     lat = p.lattice
-    template = _face([lat.hexagon]).extrude(vec)
+    cell_faces = {key: _cell_face(lat, key) for key in lat.keys()}
+    templates = {}
     region_face = None
     prisms = []
     whole = partial = fallback = 0
     area = 0.0
     for pc in p.pieces:
         cx, cy = lat.center(pc.i, pc.j)
+        key = lat.key(pc.i, pc.j)
         if pc.kind == "whole":
-            prisms.append(template.translated(App.Vector(cx, cy, 0)))
+            if key not in templates:
+                templates[key] = cell_faces[key].extrude(vec)
+            prisms.append(templates[key].translated(App.Vector(cx, cy, 0)))
             whole += 1
             area += pc.area
         elif pc.kind in ("exact", "fallback"):
@@ -261,8 +294,8 @@ def build_tool(obj, base_shape):
         else:  # free
             if region_face is None:
                 region_face = _region_face(local, lat_pl)
-            hexf = _face([lat.hexagon]).translated(App.Vector(cx, cy, 0))
-            common = hexf.common(region_face)
+            cellf = cell_faces[key].translated(App.Vector(cx, cy, 0))
+            common = cellf.common(region_face)
             faces = [f for f in common.Faces if f.Area > 1e-9]
             if not faces:
                 continue
@@ -275,6 +308,13 @@ def build_tool(obj, base_shape):
     tool = Part.makeCompound(prisms)
     tool.Placement = prof.Placement.multiply(lat_pl)
     return tool, (whole, partial, fallback, area)
+
+
+def _cell_face(lat, key):
+    """The face of one cell at the origin: a true circle for round cells."""
+    if lat.round:
+        return Part.Face(Part.Wire(Part.makeCircle(lat.s / 2.0)))
+    return _face([lat.outline(key)])
 
 
 def _region_face(local, lat_pl):

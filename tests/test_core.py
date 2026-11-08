@@ -9,7 +9,7 @@ from helpers import ALIGNED, ALIGNED_AREA, ALIGNED_PARTIAL, ALIGNED_WHOLE, CELL_
 
 from freecad.hexilator.core.clip import plan, snap_loop
 from freecad.hexilator.core.geom import EPS, Arc, Loop, Region, Seg, halfplanes, poly_area
-from freecad.hexilator.core.lattice import Lattice
+from freecad.hexilator.core.lattice import HexLattice as Lattice
 
 
 def rect(x0, y0, x1, y1):
@@ -291,7 +291,7 @@ class PlanTest(unittest.TestCase):
                                         "trial %d: piece %r leaves the field" % (trial, pc))
                     for k in range(len(poly)):
                         a, b = poly[k], poly[(k + 1) % len(poly)]
-                        self.assertTrue(on_cell_line(lat, c, a, b),
+                        self.assertTrue(on_cell_line(lat, (pc.i, pc.j), a, b),
                                         "trial %d: %r has an off-chord edge" % (trial, pc))
 
 
@@ -337,10 +337,11 @@ def near_boundary(region, q, tol=1e-6):
     return False
 
 
-def on_cell_line(lat, c, a, b):
+def on_cell_line(lat, ij, a, b):
+    c = lat.center(*ij)
     la = (a[0] - c[0], a[1] - c[1])
     lb = (b[0] - c[0], b[1] - c[1])
-    lines = list(lat.chords()) + halfplanes(lat.hexagon)
+    lines = list(lat.chords(lat.key(*ij))) + halfplanes(lat.outline(lat.key(*ij)))
     for nrm, off in lines:
         if abs(nrm[0] * la[0] + nrm[1] * la[1] - off) < 1e-6 and \
                 abs(nrm[0] * lb[0] + nrm[1] * lb[1] - off) < 1e-6:

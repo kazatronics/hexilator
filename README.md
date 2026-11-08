@@ -7,7 +7,8 @@ A FreeCAD addon for parametric hex grids: honeycomb vents and fan covers that cu
 ## Goals
 - A PartDesign feature that cuts a hex grid into a body, like a Pocket.
 - **Field:** a sketch. The outer loop is the area the grid fills; inner loops are keep-outs around openings (ports, holes, bosses).
-- **Adjustable cell size** (across flats) and **spacing** (the web between cells).
+- **Cell shapes:** hexagons by default. Also squares and triangles, which tile and snap like hexagons, and circles or regular polygons on a hexagonal or square grid.
+- **Adjustable cell size** (inscribed diameter: across flats for a hexagon) and **spacing** (the web between cells).
 - **Orientation, and a phase anchor** that pins the lattice, so grids on separate parts (e.g. a case's tray and lid, split across one grid) line up.
 - **Depth or through-all.**
 - **Clipping:**
@@ -25,6 +26,8 @@ from freecad.hexilator import make_hex_grid, __version__
 
 grid = make_hex_grid(body, sketch, CellSize=5, Web=1.2, Depth=3, AnchorX=0, AnchorY=0)
 grid.setExpression("CellSize", "Params.HexCell")  # any property can be driven by a sheet
+square = make_hex_grid(body, sketch2, CellShape="Square", CellSize=4, Web=1)
+holes = make_hex_grid(body, sketch3, CellShape="Circle", Lattice="Hexagonal", CellSize=3)
 ```
 
 The sketch's outer loops are the fields and its inner loops are keep-outs. `ClipMode` is `Snap` (the default), `Whole` or `Free`. The read-only properties `WholeCells`, `PartialCells`, `FallbackCells`, `OpenArea` and `Version` report the result. See [DESIGN.md](DESIGN.md) for every property.

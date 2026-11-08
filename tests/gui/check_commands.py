@@ -195,6 +195,30 @@ try:
         check(doc.UndoNames[:1] == ["Edit HexGrid"], "undo stack: %r" % doc.UndoNames[:3])
         check("Invalid" not in g.State, "grid invalid after the edit: %s" % g.State)
 
+    # --- cell shape fields ---
+    g.ViewObject.doubleClicked()
+    settle()
+    panel = taskpanel.current
+    if check(panel is not None, "the third double-click didn't open the panel"):
+        check(not panel.sides.isEnabled() and not panel.lattice.isEnabled(),
+              "Sides or Lattice enabled for hexagons")
+        panel.shape.setCurrentIndex(panel.shape.findData("Polygon"))
+        check(g.CellShape == "Polygon", "CellShape didn't follow the combo box")
+        check(panel.sides.isEnabled() and panel.lattice.isEnabled(),
+              "Sides or Lattice disabled for polygons")
+        panel.lattice.setCurrentIndex(panel.lattice.findData("Square"))
+        panel.sides.setValue(6)
+        check((g.Lattice, g.Sides) == ("Square", 6), "Lattice/Sides: %s %s" % (g.Lattice, g.Sides))
+        panel.preview_now()
+        check(g.WholeCells > 0 and g.PartialCells == 0,
+              "polygon preview: %d whole, %d partial" % (g.WholeCells, g.PartialCells))
+        panel.shape.setCurrentIndex(panel.shape.findData("Circle"))
+        check(not panel.sides.isEnabled(), "Sides enabled for circles")
+        check(panel.accept() is True, "accept after a shape edit failed")
+        settle()
+        check(g.CellShape == "Circle" and "Invalid" not in g.State,
+              "circle grid after OK: %s %s" % (g.CellShape, g.State))
+
     text = report_text()[len(before):]
     bad = [ln for ln in text.splitlines()
            if any(k in ln for k in ("Traceback", "Exception", "Error", "<class"))]
