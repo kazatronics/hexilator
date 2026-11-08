@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""The HexGrid task panel (see DESIGN.md, GUI).
+"""The task panel of HexGrid and HexGridPad (see DESIGN.md, GUI).
 
 Shaped like PartDesign's own feature dialogs (TaskDlgFeatureParameters): edits apply to the
 feature as they're made, with a debounced preview; OK recomputes, checks the result and
@@ -11,7 +11,7 @@ import FreeCADGui as Gui
 from PySide import QtCore, QtGui, QtWidgets
 
 from .commands import body_of, is_profile
-from .viewprovider import ICON
+from .viewprovider import ICON, PAD_ICON, is_pad
 
 translate = App.Qt.translate
 
@@ -22,13 +22,21 @@ current = None
 """The open panel, if any (for tests and macros)."""
 
 # (property, label, unit, minimum)
+# the lattice and field fields, shared by both features
 QUANTITIES = (
     ("CellSize", QtCore.QT_TRANSLATE_NOOP("Hexilator", "Cell size"), "mm", 0.0),
     ("Web", QtCore.QT_TRANSLATE_NOOP("Hexilator", "Web"), "mm", 0.0),
     ("Angle", QtCore.QT_TRANSLATE_NOOP("Hexilator", "Angle"), "deg", -360.0),
     ("AnchorX", QtCore.QT_TRANSLATE_NOOP("Hexilator", "Anchor X"), "mm", -1e9),
     ("AnchorY", QtCore.QT_TRANSLATE_NOOP("Hexilator", "Anchor Y"), "mm", -1e9),
+)
+# what follows the Edges and Type or Mode fields
+CUT_QUANTITIES = (
     ("Depth", QtCore.QT_TRANSLATE_NOOP("Hexilator", "Depth"), "mm", 0.0),
+)
+PAD_QUANTITIES = (
+    ("Height", QtCore.QT_TRANSLATE_NOOP("Hexilator", "Height"), "mm", 0.0),
+    ("Border", QtCore.QT_TRANSLATE_NOOP("Hexilator", "Border"), "mm", 0.0),
 )
 
 ENUM_TEXT = {
@@ -37,6 +45,8 @@ ENUM_TEXT = {
     "Free": QtCore.QT_TRANSLATE_NOOP("Hexilator", "Clip exactly"),
     "Dimension": QtCore.QT_TRANSLATE_NOOP("Hexilator", "Dimension"),
     "ThroughAll": QtCore.QT_TRANSLATE_NOOP("Hexilator", "Through all"),
+    "Walls": QtCore.QT_TRANSLATE_NOOP("Hexilator", "Walls (ribs)"),
+    "Cells": QtCore.QT_TRANSLATE_NOOP("Hexilator", "Cells (bosses)"),
     "Hexagon": QtCore.QT_TRANSLATE_NOOP("Hexilator", "Hexagon"),
     "Square": QtCore.QT_TRANSLATE_NOOP("Hexilator", "Square"),
     "Triangle": QtCore.QT_TRANSLATE_NOOP("Hexilator", "Triangle"),
@@ -55,9 +65,13 @@ def _solid_features(body):
 
 
 class HexGridTaskPanel:
+    """Edits a HexGrid, or a HexGridPad (which has Mode, Height and Border instead of Type and
+    Depth). The feature decides which fields show."""
+
     def __init__(self, obj):
         global current
         self.obj = obj
+        self.pad = is_pad(obj)
         self.doc = obj.Document
         self.body = body_of(obj)
         self.selecting = False
@@ -89,8 +103,8 @@ class HexGridTaskPanel:
 
     def _build(self):
         form = QtWidgets.QWidget()
-        form.setWindowTitle(translate("Hexilator", "Hex grid"))
-        form.setWindowIcon(QtGui.QIcon(ICON))
+        form.setWindowTitle(translate("Hexilator", "Hex grid pad" if self.pad else "Hex grid"))
+        form.setWindowIcon(QtGui.QIcon(PAD_ICON if self.pad else ICON))
         top = QtWidgets.QVBoxLayout(form)
 
         row = QtWidgets.QHBoxLayout()
@@ -117,19 +131,19 @@ class HexGridTaskPanel:
         grid.addRow(translate("Hexilator", "Sides") + ":", self.sides)
         self.quantities = {}
         self.bindings = []
+        self.type = self.mode = None
         for prop, label, unit, minimum in QUANTITIES:
-            w = loader.createWidget("Gui::QuantitySpinBox")
-            w.setProperty("unit", unit)
-            w.setProperty("minimum", minimum)
-            w.setProperty("maximum", 1e9 if unit == "mm" else 360.0)
-            w.setToolTip(self.obj.getDocumentationOfProperty(prop))
-            self.quantities[prop] = w
-            grid.addRow(translate("Hexilator", label) + ":", w)
-            if prop == "AnchorY":
-                self.clip = self._combo("ClipMode")
-                grid.addRow(translate("Hexilator", "Edges") + ":", self.clip)
-                self.type = self._combo("Type")
-                grid.addRow(translate("Hexilator", "Type") + ":", self.type)
+            self._quantity(grid, loader, prop, label, unit, minimum)
+        self.clip = self._combo("ClipMode")
+        grid.addRow(translate("Hexilator", "Edges") + ":", self.clip)
+        if self.pad:
+            self.mode = self._combo("Mode")
+            grid.addRow(translate("Hexilator", "Mode") + ":", self.mode)
+        else:
+            self.type = self._combo("Type")
+            grid.addRow(translate("Hexilator", "Type") + ":", self.type)
+        for prop, label, unit, minimum in PAD_QUANTITIES if self.pad else CUT_QUANTITIES:
+            self._quantity(grid, loader, prop, label, unit, minimum)
         self.reversed = QtWidgets.QCheckBox(translate("Hexilator", "Reversed"))
         self.reversed.setToolTip(self.obj.getDocumentationOfProperty("Reversed"))
         grid.addRow(self.reversed)
@@ -142,6 +156,15 @@ class HexGridTaskPanel:
         self.results.setWordWrap(True)
         top.addWidget(self.results)
         return form
+
+    def _quantity(self, grid, loader, prop, label, unit, minimum):
+        w = loader.createWidget("Gui::QuantitySpinBox")
+        w.setProperty("unit", unit)
+        w.setProperty("minimum", minimum)
+        w.setProperty("maximum", 1e9 if unit == "mm" else 360.0)
+        w.setToolTip(self.obj.getDocumentationOfProperty(prop))
+        self.quantities[prop] = w
+        grid.addRow(translate("Hexilator", label) + ":", w)
 
     def _combo(self, prop):
         c = QtWidgets.QComboBox()
@@ -166,8 +189,9 @@ class HexGridTaskPanel:
         b.setAutoApply(True)
         self.bindings.append(b)
         self.sides.valueChanged.connect(self._sides_changed)
-        for prop, c in (("CellShape", self.shape), ("Lattice", self.lattice),
-                        ("ClipMode", self.clip), ("Type", self.type)):
+        combos = [("CellShape", self.shape), ("Lattice", self.lattice), ("ClipMode", self.clip),
+                  ("Mode", self.mode) if self.pad else ("Type", self.type)]
+        for prop, c in combos:
             c.setCurrentIndex(c.findData(getattr(obj, prop)))
             c.currentIndexChanged.connect(lambda _i, p=prop, c=c: self._set(p, c.currentData()))
         self.reversed.setChecked(obj.Reversed)
@@ -184,7 +208,10 @@ class HexGridTaskPanel:
                                    else translate("Hexilator", "(none)"))
 
     def _update_enabled(self):
-        self.quantities["Depth"].setEnabled(self.obj.Type == "Dimension")
+        if self.pad:
+            self.quantities["Border"].setEnabled(self.obj.Mode == "Walls")
+        else:
+            self.quantities["Depth"].setEnabled(self.obj.Type == "Dimension")
         shape = self.obj.CellShape
         self.lattice.setEnabled(shape in ("Circle", "Polygon"))
         self.sides.setEnabled(shape == "Polygon")
@@ -217,7 +244,7 @@ class HexGridTaskPanel:
     def _set(self, prop, value):
         if getattr(self.obj, prop) != value:
             setattr(self.obj, prop, value)
-        if prop in ("Type", "CellShape"):
+        if prop in ("Type", "CellShape", "Mode"):
             self._update_enabled()
         self.schedule()
 

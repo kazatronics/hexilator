@@ -8,8 +8,9 @@ from PySide import QtCore
 translate = App.Qt.translate
 
 HEXGRID = "Hexilator_HexGrid"
-TOOLBAR_COMMANDS = (HEXGRID,)
-MENU_COMMANDS = (HEXGRID,)
+HEXGRIDPAD = "Hexilator_HexGridPad"
+TOOLBAR_COMMANDS = (HEXGRID, HEXGRIDPAD)
+MENU_COMMANDS = (HEXGRID, HEXGRIDPAD)
 
 # What PartDesign copies from the base feature onto a new feature's view (finishFeature).
 VIEW_PROPS = ("ShapeAppearance", "LineColor", "PointColor", "Transparency", "DisplayMode")
@@ -71,6 +72,10 @@ def _choose_profile(body):
 class HexGridCommand:
     """Create a HexGrid from the selected sketch, or from a sketch in the active Body."""
 
+    name = HEXGRID
+    maker = "make_hex_grid"
+    transaction = QtCore.QT_TRANSLATE_NOOP("Hexilator", "Create HexGrid")
+
     def GetResources(self):
         return {
             "Pixmap": "Hexilator_HexGrid",
@@ -111,11 +116,11 @@ class HexGridCommand:
             _warn(translate("Hexilator", "The sketch %s is not in a body.") % profile.Label)
             return
         before = set(o.Name for o in doc.Objects)
-        doc.openTransaction(translate("Hexilator", "Create HexGrid"))
+        doc.openTransaction(translate("Hexilator", self.transaction))
         Gui.addModule("freecad.hexilator")
-        Gui.doCommand("freecad.hexilator.make_hex_grid(App.getDocument(%r).getObject(%r), "
+        Gui.doCommand("freecad.hexilator.%s(App.getDocument(%r).getObject(%r), "
                       "App.getDocument(%r).getObject(%r))"
-                      % (doc.Name, body.Name, doc.Name, profile.Name))
+                      % (self.maker, doc.Name, body.Name, doc.Name, profile.Name))
         new = [o for o in doc.Objects if o.Name not in before and hasattr(o, "CellSize")]
         grid = new[0] if len(new) == 1 else None
         if grid is None:
@@ -133,5 +138,26 @@ class HexGridCommand:
         Gui.ActiveDocument.setEdit(grid, 0)
 
 
+class HexGridPadCommand(HexGridCommand):
+    """Create a HexGridPad (the additive grid) from the selected sketch, or from a sketch in
+    the active Body."""
+
+    name = HEXGRIDPAD
+    maker = "make_hex_grid_pad"
+    transaction = QtCore.QT_TRANSLATE_NOOP("Hexilator", "Create HexGridPad")
+
+    def GetResources(self):
+        return {
+            "Pixmap": "Hexilator_HexGridPad",
+            "MenuText": QtCore.QT_TRANSLATE_NOOP(HEXGRIDPAD, "Hex Grid Pad"),
+            "ToolTip": QtCore.QT_TRANSLATE_NOOP(
+                HEXGRIDPAD,
+                "Pads a hex grid onto the body: the walls between the cells, or the cells "
+                "themselves. The selected sketch's outer loops are the fields; its inner "
+                "loops are keep-outs."),
+        }
+
+
 def register():
     Gui.addCommand(HEXGRID, HexGridCommand())
+    Gui.addCommand(HEXGRIDPAD, HexGridPadCommand())

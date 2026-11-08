@@ -27,7 +27,8 @@ try:
     import helpers as h
 
     import freecad.hexilator as hx
-    from freecad.hexilator.viewprovider import ICON, ViewProviderHexGrid
+    from freecad.hexilator.viewprovider import (ICON, PAD_ICON, ViewProviderHexGrid,
+                                                ViewProviderHexGridPad)
 
     def report_text():
         mw = Gui.getMainWindow()
@@ -40,9 +41,11 @@ try:
 
     def check_feature(doc, name, field):
         g = doc.getObject(name)
-        if not isinstance(g.ViewObject.Proxy, ViewProviderHexGrid):
-            failures.append("%s has no ViewProviderHexGrid proxy: %r" % (name, g.ViewObject.Proxy))
-        elif g.ViewObject.Proxy.getIcon() != ICON or not os.path.isfile(ICON):
+        pad = name.startswith("HexGridPad")
+        cls, icon = (ViewProviderHexGridPad, PAD_ICON) if pad else (ViewProviderHexGrid, ICON)
+        if type(g.ViewObject.Proxy) is not cls:
+            failures.append("%s has no %s proxy: %r" % (name, cls.__name__, g.ViewObject.Proxy))
+        elif g.ViewObject.Proxy.getIcon() != icon or not os.path.isfile(icon):
             failures.append("%s: icon missing" % name)
         elif doc.getObject(field) not in g.ViewObject.Proxy.claimChildren():
             failures.append("%s: the profile sketch is not claimed in the tree" % name)
@@ -63,14 +66,18 @@ try:
         doc = App.openDocument(os.environ["HEXILATOR_DOC"])
         Gui.updateGui()
         g = check_feature(doc, "HexGrid", "Field")
-        g.CellSize = 4.5
+        gp = check_feature(doc, "HexGridPad", "PadField")
+        for f in (g, gp):
+            f.CellSize = 4.5
         doc.recompute()
         Gui.updateGui()
-        if "Invalid" in g.State:
-            failures.append("recompute in the GUI failed: %s" % g.State)
+        for f in (g, gp):
+            if "Invalid" in f.State:
+                failures.append("recompute of %s in the GUI failed: %s" % (f.Name, f.State))
 
         # build one in the GUI, then save with GUI data
         doc2 = h.new_doc("guimade")
+        body2, box2 = h.plate(doc2, 40, 40, 3.0, x=-8, y=-8, name="Body2")
         body, box = h.plate(doc2, 40, 40, 3.0, x=-8, y=-8)
         sk = h.sketch(body, z=3.0)
         h.add_rect(sk, *h.ALIGNED)
@@ -79,12 +86,21 @@ try:
         Gui.updateGui()
         check_feature(doc2, "HexGrid", "Field")
         check_visibility(doc2, "Body", "HexGrid", ("BodyPlate", "Field"))
+        sk2 = h.sketch(body2, z=3.0, name="PadField")
+        h.add_rect(sk2, *h.ALIGNED)
+        hx.make_hex_grid_pad(body2, sk2)
+        doc2.recompute()
+        Gui.updateGui()
+        check_feature(doc2, "HexGridPad", "PadField")
+        check_visibility(doc2, "Body2", "HexGridPad", ("Body2Plate", "PadField"))
         doc2.saveAs(os.environ["HEXILATOR_GUIDOC"])
     else:
         doc = App.openDocument(os.environ["HEXILATOR_GUIDOC"])
         Gui.updateGui()
         check_feature(doc, "HexGrid", "Field")
         check_visibility(doc, "Body", "HexGrid", ("BodyPlate", "Field"))
+        check_feature(doc, "HexGridPad", "PadField")
+        check_visibility(doc, "Body2", "HexGridPad", ("Body2Plate", "PadField"))
         shot = os.environ.get("HEXILATOR_SHOT")
         if shot:
             v = Gui.ActiveDocument.ActiveView

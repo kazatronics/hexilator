@@ -22,6 +22,13 @@ try:
     g = hx.make_hex_grid(body, sk)
     doc.recompute()
     assert "Invalid" not in g.State, g.State
+    body2, box2 = h.plate(doc, 40, 40, 3.0, x=-8, y=-8, name="Body2")
+    sk2 = h.sketch(body2, z=3.0, name="PadField")
+    h.add_rect(sk2, *h.ALIGNED)
+    h.add_circle(sk2, 10.7, 12.4, 2.0)
+    gp = hx.make_hex_grid_pad(body2, sk2, Border=0.5)
+    doc.recompute()
+    assert "Invalid" not in gp.State, gp.State
     doc.saveAs(os.environ["HEXILATOR_DOC"])
 except Exception:
     traceback.print_exc()

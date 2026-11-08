@@ -22,3 +22,9 @@ def make_hex_grid(body, profile, name="HexGrid", **props):
     """Add a HexGrid feature to body; see feature.make_hex_grid."""
     from .feature import make_hex_grid as _make
     return _make(body, profile, name, **props)
+
+
+def make_hex_grid_pad(body, profile, name="HexGridPad", **props):
+    """Add a HexGridPad feature to body; see pad.make_hex_grid_pad."""
+    from .pad import make_hex_grid_pad as _make
+    return _make(body, profile, name, **props)

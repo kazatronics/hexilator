@@ -1,8 +1,8 @@
 # SPDX-License-Identifier: Apache-2.0
 """GUI test stage "commands", run by full FreeCAD under Xvfb (mise-tasks/test-gui).
 
-The Hexilator toolbar and menu entry in PartDesign; the Hex Grid command; the task panel's
-preview, OK and Cancel; undo and redo; editing by double-click. Avoids every path that opens a
+The Hexilator toolbar and menu entries in PartDesign; the Hex Grid and Hex Grid Pad commands;
+the task panel's preview, OK and Cancel; undo and redo; editing by double-click. Avoids every path that opens a
 modal message box, which would hang the run.
 
 Writes "ok" or the failures to $HEXILATOR_RESULT, then quits.
@@ -30,7 +30,7 @@ try:
     import helpers as h
 
     from freecad.hexilator import taskpanel
-    from freecad.hexilator.commands import HEXGRID
+    from freecad.hexilator.commands import HEXGRID, HEXGRIDPAD
 
     mw = Gui.getMainWindow()
 
@@ -75,9 +75,10 @@ try:
     settle()
     tb = toolbar()
     if check(tb is not None, "no Hexilator toolbar in PartDesign"):
-        check("Hex Grid" in [a.text() for a in tb.actions()],
-              "the Hexilator toolbar has no Hex Grid action: %r"
-              % [a.text() for a in tb.actions()])
+        for text in ("Hex Grid", "Hex Grid Pad"):
+            check(text in [a.text() for a in tb.actions()],
+                  "the Hexilator toolbar has no %s action: %r"
+                  % (text, [a.text() for a in tb.actions()]))
         check(tb.isVisible(), "the Hexilator toolbar is hidden in PartDesign")
     for _ in range(10):
         menus = command_menus(HEXGRID)
@@ -88,6 +89,15 @@ try:
         check(any(any(t.startswith("Sprocket") for t in texts) for _, texts in menus),
               "Hex Grid isn't in the Part Design menu beside Sprocket: %r"
               % [texts for _, texts in menus])
+    for _ in range(10):
+        menus = command_menus(HEXGRIDPAD)
+        if menus:
+            break
+        settle()
+    if check(menus, "Hex Grid Pad is in no menu"):
+        check(any(any(t.startswith("Hex Grid Pad") for t in texts)
+                  and any(t.startswith("Sprocket") for t in texts) for _, texts in menus),
+              "Hex Grid Pad isn't in the Part Design menu: %r" % [texts for _, texts in menus])
     Gui.activateWorkbench("PartWorkbench")
     settle()
     tb = toolbar()
@@ -218,6 +228,113 @@ try:
         settle()
         check(g.CellShape == "Circle" and "Invalid" not in g.State,
               "circle grid after OK: %s %s" % (g.CellShape, g.State))
+
+    # --- Hex Grid Pad: create, panel fields, OK, Cancel, double-click ---
+    from freecad.hexilator.viewprovider import PAD_ICON, ViewProviderHexGridPad
+
+    pdoc = h.new_doc("padcmd")
+    pbody, pbox = h.plate(pdoc, 40, 40, 3.0, x=-8, y=-8)
+    psk = h.sketch(pbody, z=3.0)
+    h.add_rect(psk, *h.ALIGNED)
+    pdoc.recompute()
+    Gui.Selection.clearSelection()
+    Gui.Selection.addSelection(psk)
+    check(Gui.Command.get(HEXGRIDPAD).isActive(), "Hex Grid Pad is inactive with a sketch selected")
+    Gui.runCommand(HEXGRIDPAD)
+    settle()
+    gs = grids(pdoc)
+    if not check(len(gs) == 1, "the pad command made %d grids" % len(gs)):
+        raise SystemExit
+    pg = gs[0]
+    panel = taskpanel.current
+    check(pg.TypeId == "PartDesign::FeatureAdditivePython", "pad TypeId %s" % pg.TypeId)
+    check(type(pg.ViewObject.Proxy) is ViewProviderHexGridPad, "no pad view provider")
+    check(pg.ViewObject.Proxy.getIcon() == PAD_ICON, "pad icon: %s" % pg.ViewObject.Proxy.getIcon())
+    check(Gui.Control.activeDialog(), "no task dialog after the pad command")
+    if not check(panel is not None and panel.obj is pg, "the panel isn't editing the new pad"):
+        raise SystemExit
+    check(panel.pad and panel.mode is not None and panel.type is None,
+          "the pad panel has no Mode field, or has Type")
+    check({"Height", "Border"} <= set(panel.quantities) and "Depth" not in panel.quantities,
+          "pad panel quantities: %r" % sorted(panel.quantities))
+    check(panel.reversed is not None, "the pad panel has no Reversed box")
+    check(pg.Profile[0] is psk and pbody.Tip is pg, "the pad's profile or the Tip is wrong")
+    check(pg.Mode == "Walls" and panel.mode.currentData() == "Walls", "the pad isn't in Walls mode")
+    check(panel.quantities["Border"].isEnabled(), "Border is disabled in Walls mode")
+    check(pg.WholeCells == h.ALIGNED_WHOLE, "pad WholeCells %d" % pg.WholeCells)
+
+    panel.quantities["Height"].setProperty("rawValue", 1.5)
+    check(abs(pg.Height.Value - 1.5) < 1e-9, "Height didn't follow the field: %s" % pg.Height)
+    panel.quantities["Border"].setProperty("rawValue", 0.5)
+    check(abs(pg.Border.Value - 0.5) < 1e-9, "Border didn't follow the field: %s" % pg.Border)
+    panel.mode.setCurrentIndex(panel.mode.findData("Cells"))
+    check(pg.Mode == "Cells", "Mode didn't follow the combo box")
+    check(not panel.quantities["Border"].isEnabled(), "Border is enabled in Cells mode")
+    panel.reversed.setChecked(True)
+    check(pg.Reversed is True, "Reversed didn't follow the box")
+    panel.reversed.setChecked(False)
+    check(panel.timer.isActive(), "no preview scheduled after a pad edit")
+    panel.preview_now()
+    check("Invalid" not in pg.State, "pad invalid after the preview: %s" % pg.State)
+    check("partial" in panel.results.text(), "pad results not shown: %r" % panel.results.text())
+    check(abs(pg.Shape.BoundBox.ZMax - 4.5) < 1e-6, "pad ZMax %g" % pg.Shape.BoundBox.ZMax)
+    panel.mode.setCurrentIndex(panel.mode.findData("Walls"))
+    check(panel.accept() is True, "pad accept failed")
+    settle()
+    check(not Gui.Control.activeDialog(), "the dialog is still open after pad OK")
+    check(taskpanel.current is None, "the panel is still current after pad OK")
+    check("Invalid" not in pg.State, "pad invalid after OK: %s" % pg.State)
+    check(pg.ViewObject.Visibility and not pbox.ViewObject.Visibility,
+          "visibility after pad OK")
+    check(pdoc.UndoNames[:1] == ["Create HexGridPad"], "undo stack: %r" % pdoc.UndoNames[:3])
+    pdoc.undo()
+    settle()
+    check(not grids(pdoc), "undo left the pad")
+    pdoc.redo()
+    settle()
+    gs = grids(pdoc)
+    if check(len(gs) == 1, "redo didn't bring the pad back"):
+        pg = gs[0]
+        check(abs(pg.Height.Value - 1.5) < 1e-9, "redo lost Height: %s" % pg.Height)
+    pdoc.recompute()
+
+    psk2 = h.sketch(pbody, z=3.0, name="Field2")
+    h.add_rect(psk2, 24.0, -7.0, 31.5, 31.0)
+    pdoc.recompute()
+    Gui.Selection.clearSelection()
+    Gui.Selection.addSelection(psk2)
+    Gui.runCommand(HEXGRIDPAD)
+    settle()
+    panel = taskpanel.current
+    if check(panel is not None and panel.obj is not pg, "no panel for the second pad"):
+        name = panel.obj.Name
+        check(panel.reject() is True, "pad reject didn't return True")
+        settle()
+        check(pdoc.getObject(name) is None, "Cancel kept the new pad")
+        check(pbody.Tip is pg and pg.ViewObject.Visibility, "the Tip or its display after Cancel")
+        check(len(grids(pdoc)) == 1, "pads after Cancel: %d" % len(grids(pdoc)))
+
+    pg.ViewObject.doubleClicked()
+    settle()
+    panel = taskpanel.current
+    if check(panel is not None and panel.obj is pg and panel.pad,
+             "double-click didn't open the pad panel"):
+        panel.quantities["Height"].setProperty("rawValue", 3.0)
+        panel.preview_now()
+        check(abs(pg.Height.Value - 3.0) < 1e-9, "Height didn't follow the field")
+        panel.reject()
+        settle()
+        check(abs(pg.Height.Value - 1.5) < 1e-9, "Cancel didn't restore Height: %s" % pg.Height)
+    pg.ViewObject.doubleClicked()
+    settle()
+    panel = taskpanel.current
+    if check(panel is not None, "the second pad double-click didn't open the panel"):
+        panel.quantities["Height"].setProperty("rawValue", 2.5)
+        check(panel.accept() is True, "accept after a pad double-click edit failed")
+        settle()
+        check(abs(pg.Height.Value - 2.5) < 1e-9, "OK didn't keep Height: %s" % pg.Height)
+        check(pdoc.UndoNames[:1] == ["Edit HexGridPad"], "undo stack: %r" % pdoc.UndoNames[:3])
+        check("Invalid" not in pg.State, "pad invalid after the edit: %s" % pg.State)
 
     text = report_text()[len(before):]
     bad = [ln for ln in text.splitlines()

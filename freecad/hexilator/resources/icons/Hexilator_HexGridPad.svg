@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">
+  <rect x="2" y="6" width="60" height="52" rx="4" fill="#5b7fa6" stroke="#2c3e55" stroke-width="2"/>
+  <!-- raised walls: a shadow below and to the right, then the lit tops of the ribs -->
+  <g fill="none" stroke-linejoin="round" stroke-linecap="round">
+    <g stroke="#1d2b3d" stroke-width="4" transform="translate(2.5 3)">
+      <polygon points="11,22 15,15 23,15 27,22 23,29 15,29"/>
+      <polygon points="11,42 15,35 23,35 27,42 23,49 15,49"/>
+      <polygon points="25,32 29,25 37,25 41,32 37,39 29,39"/>
+      <polygon points="39,22 43,15 51,15 55,22 51,29 43,29"/>
+      <polygon points="39,42 43,35 51,35 55,42 51,49 43,49"/>
+    </g>
+    <g stroke="#f4d35e" stroke-width="4">
+      <polygon points="11,22 15,15 23,15 27,22 23,29 15,29"/>
+      <polygon points="11,42 15,35 23,35 27,42 23,49 15,49"/>
+      <polygon points="25,32 29,25 37,25 41,32 37,39 29,39"/>
+      <polygon points="39,22 43,15 51,15 55,22 51,29 43,29"/>
+      <polygon points="39,42 43,35 51,35 55,42 51,49 43,49"/>
+    </g>
+    <g stroke="#2c3e55" stroke-width="1">
+      <polygon points="11,22 15,15 23,15 27,22 23,29 15,29"/>
+      <polygon points="11,42 15,35 23,35 27,42 23,49 15,49"/>
+      <polygon points="25,32 29,25 37,25 41,32 37,39 29,39"/>
+      <polygon points="39,22 43,15 51,15 55,22 51,29 43,29"/>
+      <polygon points="39,42 43,35 51,35 55,42 51,49 43,49"/>
+    </g>
+  </g>
+</svg>
