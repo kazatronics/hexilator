@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+#MISE description="Run the tests headless under freecadcmd. Usage: mise run test [-- PATTERN] (e.g. test_core*)"
+set -euo pipefail
+# The addon is linked into a throwaway FreeCAD user data dir, so FreeCAD loads it as an
+# installed addon (document restore only imports proxies from Mod folders). freecadcmd exits 0
+# even when a script raises, so the runner reports through a result file.
+root="${MISE_PROJECT_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
+freecadcmd="${FREECADCMD:-freecadcmd}"
+tmp="$(mktemp -d)"
+trap 'rm -rf -- "$tmp"' EXIT
+mkdir -p "$tmp/data/Mod" "$tmp/home"
+ln -s "$root" "$tmp/data/Mod/Hexilator"
+export FREECAD_USER_DATA="$tmp/data" FREECAD_USER_HOME="$tmp/home"
+export HEXILATOR_ROOT="$root" HEXILATOR_TMP="$tmp" HEXILATOR_RESULT="$tmp/result"
+export HEXILATOR_PATTERN="${1:-test_*.py}" FREECADCMD="$freecadcmd"
+"$freecadcmd" "$root/tests/run.py" 2>&1 | tr '\r' '\n' | grep -vE '^\s*(\([0-9]+ %\)\s*)*$|^Recompute\.+$'
+result="$(cat "$tmp/result" 2>/dev/null || echo missing)"
+if [ "$result" != ok ]; then
+  echo "tests FAILED (result: $result)" >&2
+  exit 1
+fi

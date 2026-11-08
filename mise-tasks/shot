@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+#MISE description="Screenshot a FreeCAD file off-screen (Xvfb). Usage: mise run shot -- FILE.FCStd OUT.png [VIEW]"
+set -euo pipefail
+# VIEW is isometric (default), front, top, right, rear, left or bottom.
+root="${MISE_PROJECT_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
+doc="$(realpath "${1:?usage: mise run shot -- FILE.FCStd OUT.png [VIEW]}")"
+out="$(realpath -m "${2:?usage: mise run shot -- FILE.FCStd OUT.png [VIEW]}")"
+freecad="${FREECAD:-freecad}"
+tmp="$(mktemp -d)"
+trap 'rm -rf -- "$tmp"' EXIT
+mkdir -p "$tmp/data/Mod" "$tmp/home"
+ln -s "$root" "$tmp/data/Mod/Hexilator"
+export FREECAD_USER_DATA="$tmp/data" FREECAD_USER_HOME="$tmp/home"
+export HEXILATOR_DOC="$doc" HEXILATOR_SHOT="$out" HEXILATOR_VIEW="${3:-isometric}"
+unset WAYLAND_DISPLAY
+export QT_QPA_PLATFORM=xcb
+timeout 300 xvfb-run -a -s "-screen 0 1600x1200x24" "$freecad" "$root/tests/gui/shot.py" >"$tmp/log" 2>&1 || true
+[ -f "$out" ] || { echo "no screenshot; FreeCAD output:" >&2; tail -n 30 "$tmp/log" >&2; exit 1; }
+echo "$out"

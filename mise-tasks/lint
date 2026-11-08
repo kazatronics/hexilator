@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+#MISE description="Lint the GitHub workflows (actionlint) and the mise task scripts (shellcheck)"
+set -euo pipefail
+root="${MISE_PROJECT_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
+cd "$root"
+actionlint
+shellcheck mise-tasks/*

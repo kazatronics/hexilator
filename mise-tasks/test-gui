@@ -1,0 +1,33 @@
+#!/usr/bin/env bash
+#MISE description="GUI test: HexGrid files in full FreeCAD under Xvfb (open a headless save; save and reopen in the GUI)"
+set -euo pipefail
+# Runs off-screen with its own user home, so the user's FreeCAD window and config are never
+# touched. Under Wayland, Qt would otherwise open a real window, hence xcb.
+# HEXILATOR_SHOT=path.png also saves a screenshot of the reopened file.
+root="${MISE_PROJECT_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
+freecadcmd="${FREECADCMD:-freecadcmd}"
+freecad="${FREECAD:-freecad}"
+tmp="$(mktemp -d)"
+trap 'rm -rf -- "$tmp"' EXIT
+mkdir -p "$tmp/data/Mod" "$tmp/home"
+ln -s "$root" "$tmp/data/Mod/Hexilator"
+export FREECAD_USER_DATA="$tmp/data" FREECAD_USER_HOME="$tmp/home"
+export HEXILATOR_ROOT="$root" HEXILATOR_TMP="$tmp" HEXILATOR_RESULT="$tmp/result"
+export HEXILATOR_DOC="$tmp/headless.FCStd" HEXILATOR_GUIDOC="$tmp/guimade.FCStd"
+export HEXILATOR_SHOT="${HEXILATOR_SHOT:-}"
+"$freecadcmd" "$root/tests/gui/make_doc.py" >"$tmp/make.log" 2>&1
+[ -f "$HEXILATOR_DOC" ] || { echo "make_doc.py did not save a file:" >&2; cat "$tmp/make.log" >&2; exit 1; }
+unset WAYLAND_DISPLAY
+export QT_QPA_PLATFORM=xcb
+for stage in headless reopen; do
+  rm -f -- "$tmp/result"
+  HEXILATOR_STAGE="$stage" timeout 300 xvfb-run -a -s "-screen 0 1600x1200x24" "$freecad" "$root/tests/gui/check_gui.py" \
+    >"$tmp/gui-$stage.log" 2>&1 || true
+  if [ "$(head -n1 "$tmp/result" 2>/dev/null)" != ok ]; then
+    cat "$tmp/result" >&2 2>/dev/null || echo "no result from stage $stage" >&2
+    echo "GUI test FAILED at stage $stage; FreeCAD output:" >&2
+    tail -n 40 "$tmp/gui-$stage.log" >&2
+    exit 1
+  fi
+  echo "GUI stage $stage: ok"
+done
