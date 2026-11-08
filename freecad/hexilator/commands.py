@@ -126,10 +126,9 @@ class HexGridCommand:
         base = grid.BaseFeature
         src = base if base is not None else body
         for prop in VIEW_PROPS:
-            try:
+            # not every view provider has every property (e.g. a bare Body's)
+            if hasattr(src.ViewObject, prop) and hasattr(grid.ViewObject, prop):
                 setattr(grid.ViewObject, prop, getattr(src.ViewObject, prop))
-            except Exception:
-                pass
         Gui.Selection.clearSelection()
         Gui.ActiveDocument.setEdit(grid, 0)
 

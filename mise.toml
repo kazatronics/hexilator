@@ -9,3 +9,5 @@
 [tools]
 actionlint = "1.7.12"
 shellcheck = "0.11.0"
+uv = "0.12.18"  # runs Python tools (the pipx backend below)
+"pipx:bandit" = "1.8.6"
