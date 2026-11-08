@@ -2,7 +2,7 @@
 
 A FreeCAD addon for parametric hex grids: honeycomb vents and fan covers that cut cleanly into a part.
 
-**Status:** repository structure only. No code yet.
+**Status:** design agreed ([DESIGN.md](DESIGN.md)); v0.1 in progress.
 
 ## Goals
 - A PartDesign feature that cuts a hex grid into a body, like a Pocket.
