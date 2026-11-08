@@ -46,15 +46,25 @@ try:
         return mw.findChild(QtWidgets.QToolBar, "Hexilator")
 
     def menu_with(text):
-        """The menu holding an action with this text, searched through the menu bar."""
-        todo = [a.menu() for a in mw.menuBar().actions() if a.menu()]
-        while todo:
-            m = todo.pop()
-            texts = [a.text().replace("&", "") for a in m.actions()]
-            if text in texts:
-                return m
-            todo += [a.menu() for a in m.actions() if a.menu()]
-        return None
+        """The menu holding an action with this text, searched through the menu bar.
+
+        FreeCAD rebuilds some menus (e.g. recent files) on the fly, so a menu found a moment
+        ago may already be deleted: skip those.
+        """
+        def search(menus):
+            for m in menus:
+                try:
+                    actions = m.actions()
+                except RuntimeError:  # Internal C++ object already deleted
+                    continue
+                if text in [a.text().replace("&", "") for a in actions]:
+                    return m
+                found = search([a.menu() for a in actions if a.menu()])
+                if found is not None:
+                    return found
+            return None
+
+        return search([a.menu() for a in mw.menuBar().actions() if a.menu()])
 
     def grids(doc):
         return [o for o in doc.Objects if hasattr(o, "CellSize")]
