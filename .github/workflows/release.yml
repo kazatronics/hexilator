@@ -1,6 +1,6 @@
-# On pushes to master: test, then compute the next version from the conventional commits, write
-# it into package.xml, tag that commit vX.Y.Z and publish a GitHub release (DESIGN.md,
-# Development process).
+# On pushes to master (merged PRs): test, then compute the next version from the conventional
+# commits, make a release commit off master that writes it into package.xml, tag that commit
+# vX.Y.Z and publish a GitHub release (DESIGN.md, Development process).
 name: Release
 
 on:
@@ -35,7 +35,7 @@ jobs:
           default_bump: false
           release_branches: ^master$
 
-      - name: Write the version into package.xml
+      - name: Release commit
         id: commit
         if: steps.next.outputs.new_version != ''
         env:
@@ -45,14 +45,19 @@ jobs:
           sed -i -E \
             -e "s|<version>[^<]*</version>|<version>${VERSION}</version>|" \
             -e "s|<date>[^<]*</date>|<date>$(date -u +%F)</date>|" package.xml
-          # The contents API commits as the workflow's own identity, and commits made with the
-          # workflow token start no new workflow run.
-          sha="$(gh api -X PUT "repos/${GITHUB_REPOSITORY}/contents/package.xml" \
-            -f message="chore(release): v${VERSION}" \
-            -f content="$(base64 -w0 package.xml)" \
-            -f sha="$(git rev-parse "${GITHUB_SHA}:package.xml")" \
-            -f branch=master \
-            --jq .commit.sha)"
+          # A commit on top of the released master commit, on no branch: only the tag points
+          # at it, so protected master is untouched. The git-data API commits as the
+          # workflow's own identity.
+          repo="repos/${GITHUB_REPOSITORY}"
+          base_tree="$(gh api "$repo/git/commits/${GITHUB_SHA}" --jq .tree.sha)"
+          blob="$(jq -n --arg c "$(base64 -w0 package.xml)" '{content: $c, encoding: "base64"}' \
+            | gh api "$repo/git/blobs" --input - --jq .sha)"
+          tree="$(jq -n --arg b "$base_tree" --arg s "$blob" \
+            '{base_tree: $b, tree: [{path: "package.xml", mode: "100644", type: "blob", sha: $s}]}' \
+            | gh api "$repo/git/trees" --input - --jq .sha)"
+          sha="$(jq -n --arg m "chore(release): v${VERSION}" --arg t "$tree" --arg p "$GITHUB_SHA" \
+            '{message: $m, tree: $t, parents: [$p]}' \
+            | gh api "$repo/git/commits" --input - --jq .sha)"
           echo "sha=$sha" >> "$GITHUB_OUTPUT"
 
       - name: Tag

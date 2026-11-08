@@ -1,12 +1,11 @@
-# Lint and test, with the same mise tasks as local runs. Pushes to master run this through
-# release.yml instead.
+# Lint and test, with the same mise tasks as local runs. Runs on pull requests; merges to master
+# run it through release.yml. The job name `test` is the check master's ruleset requires.
 name: CI
 
 on:
   pull_request:
-  push:
-    branches-ignore: [master]
   workflow_call:
+  workflow_dispatch:
 
 permissions:
   contents: read

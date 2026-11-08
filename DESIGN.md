@@ -110,7 +110,7 @@ The feature knows only its field, not the body. A field drawn past the body's ed
 ## Packaging, install and detection
 - **Layout:** `package.xml` and `freecad/hexilator/` (a namespace package) at the repo root. The repo root is the addon folder.
 - **Restore check:** FreeCAD 1.1.4 imports a proxy's module during document restore only if it comes from an installed addon (a `Mod` folder); being on `sys.path` is not enough. A proxy in `freecad.<name>.<module>` passes, verified 2026-11-08.
-- **Version:** `package.xml`'s `<version>` is the single source. `freecad.hexilator.__version__` reads it at import, so the two can't differ; a test checks the format. Releases are git tags `vX.Y.Z` on GitHub, made by the release workflow (see Development process), which writes the version into `package.xml` on the commit it tags. So a checkout of tag `vX.Y.Z` reports `__version__ == "X.Y.Z"`. Between releases, master reports the last released version.
+- **Version:** `package.xml`'s `<version>` is the single source. `freecad.hexilator.__version__` reads it at import, so the two can't differ; a test checks the format. On master it stays `0.0.0`. Each release tag `vX.Y.Z` points at a release commit off master that sets it, so a checkout of the tag reports `__version__ == "X.Y.Z"` (see Development process).
 - **Install:** an install is a git checkout of a ref (a tag, a branch or a full commit SHA) at `<user data>/Mod/Hexilator`.
   - The user data dir is `FreeCAD.getUserAppDataDir()`: `~/.local/share/FreeCAD/v1-1/` here, or `$FREECAD_USER_DATA` when that's set.
   - `mise-tasks/install` does it. It clones, or fetches and checks out, and skips the work when the checkout is already at the ref.
@@ -118,18 +118,27 @@ The feature knows only its field, not the body. A field drawn past the body's ed
 - **Detection:** a file opened without the addon keeps its last shape, with `Proxy = None`, and recomputes silently with no error. A missing addon is therefore invisible. A user's tests should check `freecad.hexilator.__version__` against their pin; Trellis's do. Each feature also records `Version`.
 
 ## Development process
-Set by the user (2026-11-08, via Trellis).
-- **Conventional commits** for every commit, merge commits into master included, since the release workflow reads them: `feat:`, `fix:`, `test:`, `docs:`, `ci:`, `chore:`, `refactor:`, `perf:`. A breaking change takes `!` or a `BREAKING CHANGE:` footer.
-- **Tests:** written alongside the code. Nothing lands on master without tests, and `mise run test` passes before every merge.
-- **CI** (`.github/workflows/ci.yml`): on pull requests and on pushes to branches other than master, and called by the release workflow.
-  - **Jobs:** `mise run lint`, `mise run test` and `mise run test-gui` (under `xvfb-run`).
+Set by the user on 2026-11-08: conventional commits, CI and automated releases (via Trellis); then issues, pull requests and a protected master.
+- **Issues:** every problem or piece of work is a GitHub issue, including problems Trellis reports (with its repro details).
+- **Pull requests:** every change lands on master through a PR, from a branch in its own worktree. PRs are merged with a merge commit, never squashed or rebased.
+  - The merge commit's subject is the PR title and its body is the PR description, so **PR titles are conventional commits**.
+  - A PR that fixes an issue says `Fixes #N`.
+  - Merged branches are deleted.
+- **Master is protected** by a ruleset:
+  - no direct pushes (changes come through PRs);
+  - no force pushes;
+  - no deletion;
+  - the CI `test` check must pass.
+- **Conventional commits** for every commit, merge commits included, since the release workflow reads them: `feat:`, `fix:`, `test:`, `docs:`, `ci:`, `build:`, `chore:`, `refactor:`, `perf:`. A breaking change takes `!` or a `BREAKING CHANGE:` footer.
+- **Tests:** written alongside the code. Nothing lands on master without tests for the change, and `mise run test` passes before a PR is merged.
+- **CI** (`.github/workflows/ci.yml`): on pull requests, and called by the release workflow.
+  - **Job `test`:** `mise run lint`, `mise run test` and `mise run test-gui` (under `xvfb-run`).
   - **FreeCAD:** the official 1.1.4 AppImage, extracted and checked against its SHA256 file by `mise run fetch-freecad`. CI uses the same mise tasks as local runs.
-- **Releases** (`.github/workflows/release.yml`, on pushes to master), after CI passes:
+- **Releases** (`.github/workflows/release.yml`, on pushes to master, i.e. merged PRs), after CI passes:
   1. `mathieudutour/github-tag-action@v7` in dry-run mode computes the next version and its changelog from the conventional commits since the last tag. It uses `default_bump: false`, so `chore:`, `docs:`, `test:` and `ci:` alone don't release. With no tags yet, the first `feat:` gives v0.1.0.
-  2. A `chore(release): vX.Y.Z` commit sets `<version>` and `<date>` in `package.xml`. It's made through the GitHub contents API as the workflow's own identity, so no address is written into the repo, and a commit by the workflow token starts no new workflow run.
-  3. The tag action tags that commit `vX.Y.Z` (`custom_tag`, `commit_sha`).
+  2. A **release commit** `chore(release): vX.Y.Z` sets `<version>` and `<date>` in `package.xml`. Its parent is the master commit being released. It is made with the GitHub git-data API and is **not on any branch**: master stays protected and untouched, and the commit is reachable only through its tag. The API makes it as the workflow's own identity, so no address is written into the repo.
+  3. The tag action tags the release commit `vX.Y.Z` (`custom_tag`, `commit_sha`).
   4. `gh release create` publishes the GitHub release with the changelog.
-- **No pushing** to GitHub (branches, master or tags) until the user says so, directly or passed on explicitly by Trellis. Until then the workflows are checked locally only (`mise run lint`: actionlint and shellcheck).
 
 ## Tests
 Tests run headless under `freecadcmd` with `mise run test`. The task points `FREECAD_USER_DATA` at a temporary folder with `Mod/Hexilator` linked to the worktree. Tests use `unittest`. `freecadcmd` exits 0 even when a script raises, so the runner sets its own exit code.
@@ -165,6 +174,6 @@ Tests run headless under `freecadcmd` with `mise run test`. The task points `FRE
 - The survey is Trellis's `tmp/hexgrid-research/REPORT.md` (2026-11-07). The facts used from it are recorded above.
 
 ## Open questions
-- The workflows haven't run on GitHub yet; nothing can be pushed until the user allows it. The CI recipe was checked locally on 2026-11-08: the 1.1.4 AppImage passes the headless suite, and passes the GUI test in an `ubuntu:24.04` container with `ci.yml`'s apt packages. `xvfb-run` needs a 24-bit screen there, so `test-gui` sets `-screen 0 1600x1200x24`.
+- The CI recipe was checked locally on 2026-11-08: the 1.1.4 AppImage passes the headless suite, and passes the GUI test in an `ubuntu:24.04` container with `ci.yml`'s apt packages. `xvfb-run` needs a 24-bit screen there, so `test-gui` sets `-screen 0 1600x1200x24`.
 - Snap loops that mix straight edges with arcs, e.g. a rounded-rectangle keep-out. In v0.1 the whole loop falls back.
 - A toolbar command and a task panel, after v0.1.
