@@ -8,7 +8,9 @@ A FreeCAD addon for parametric hex grids. See `README.md` for the goals.
 - **Mise tasks are file tasks:** executable shell scripts in `mise-tasks/`, with `#MISE` header comments for description and dependencies. Never put inline `[tasks]` in `mise.toml`.
 - **Repo layout:** a bare repo at `../.repo` with one worktree per branch beside it. `master` is the main worktree and the default branch; it's pushed to `origin` (github.com/kazatronics/hexilator, public).
 - **Merges into master are never fast-forwards** (`--no-ff`; set on the bare repo for master), so each branch lands as one merge commit.
-- **Tests run headless** under `freecadcmd`. Run them before reporting work, and report what fails.
+- **Conventional commits** for every commit, merge commits included (`feat:`, `fix:`, `docs:`, `test:`, `ci:`, `build:`, `chore:`; `!` or a `BREAKING CHANGE:` footer for breaking changes). The release workflow computes versions and tags from them. CI and the release flow are described in `DESIGN.md`, under Development process.
+- **Never push to GitHub** (branches, master or tags) until the user lifts this rule. A push to master runs the release workflow, which tags and publishes a release.
+- **Tests run headless** under `freecadcmd`. Run them before reporting work, and report what fails. Nothing merges into master without tests for the change and a passing `mise run test`.
 - **The user's FreeCAD window belongs to the user.** Never drive it (no freecad MCP GUI tools). For screenshots, run FreeCAD off-screen under Xvfb with its own `FREECAD_USER_HOME`.
 - **Licence:** Apache 2.0 (`LICENSE.md`).
 
