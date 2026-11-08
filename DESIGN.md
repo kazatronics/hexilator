@@ -93,6 +93,7 @@ The feature knows only its field, not the body. A field drawn past the body's ed
 
 ## Geometry build
 - **Core** (`freecad/hexilator/core/`, pure Python, no FreeCAD import): the lattice, the lattice lines, snapping, classification and piece selection. Boundaries are exact segments and circular arcs. Other curves (ellipses, B-splines) are discretised in the FreeCAD layer before they reach the core, which makes their loops unsnappable.
+  - Point containment counts ray crossings, half-open in y. That is only consistent if both sides of every joint agree on its coordinates exactly, so loops weld their joints to one shared point and arcs keep their end points as given (issue #5).
 - **FreeCAD layer:**
   - read the profile's wires and turn them into loops;
   - build one hex prism template and place whole cells as translated copies of it, so they share geometry;

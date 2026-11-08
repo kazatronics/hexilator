@@ -68,6 +68,9 @@ class Seg:
     def reversed(self):
         return Seg(self.b, self.a, self.lattice)
 
+    def with_start(self, p):
+        return Seg(p, self.b, self.lattice)
+
     def hits_convex(self, poly):
         return seg_hits_convex(self.a, self.b, poly)
 
@@ -76,27 +79,37 @@ class Seg:
 
 
 class Arc:
-    """A circular arc: centre c, radius r, from angle a0 sweeping `sweep` radians (signed)."""
+    """A circular arc: centre c, radius r, from angle a0 sweeping `sweep` radians (signed).
 
-    __slots__ = ("c", "r", "a0", "sweep", "lattice")
+    The end points p0 and p1 are kept as given (computed from the angles when not given), so a
+    loop can weld its joints to exactly shared points (see Loop).
+    """
 
-    def __init__(self, c, r, a0, sweep):
+    __slots__ = ("c", "r", "a0", "sweep", "lattice", "p0", "p1")
+
+    def __init__(self, c, r, a0, sweep, p0=None, p1=None):
         self.c = (float(c[0]), float(c[1]))
         self.r = float(r)
         self.a0 = float(a0)
         self.sweep = float(sweep)
         self.lattice = False
+        self.p0 = (float(p0[0]), float(p0[1])) if p0 is not None else self.point(self.a0)
+        self.p1 = (float(p1[0]), float(p1[1])) if p1 is not None else \
+            self.point(self.a0 + self.sweep)
 
     def point(self, a):
         return (self.c[0] + self.r * math.cos(a), self.c[1] + self.r * math.sin(a))
 
     @property
     def start(self):
-        return self.point(self.a0)
+        return self.p0
 
     @property
     def end(self):
-        return self.point(self.a0 + self.sweep)
+        return self.p1
+
+    def with_start(self, p):
+        return Arc(self.c, self.r, self.a0, self.sweep, p, self.p1)
 
     def contains_angle(self, a, tol=1e-12):
         """True if direction a (radians) lies on the arc."""
@@ -133,16 +146,22 @@ class Arc:
         return 0.5 * cross(s, e) + 0.5 * self.r * self.r * (self.sweep - math.sin(self.sweep))
 
     def _monotone_pieces(self):
-        """Split into pieces that are monotone in y (cuts at the top and bottom of the circle)."""
+        """Pieces (a, b, ya, yb) monotone in y, cut at the top and bottom of the circle.
+
+        The outer ends take their y from the stored end points, so they agree exactly with the
+        neighbouring primitives; the cuts take exactly c ± r.
+        """
         cuts = [a for a in self._split_angles(math.pi / 2) if abs(math.sin(a)) > 0.5]
-        angles = [self.a0] + (cuts if self.sweep >= 0 else cuts[::-1]) + [self.a0 + self.sweep]
-        return list(zip(angles[:-1], angles[1:]))
+        if self.sweep < 0:
+            cuts = cuts[::-1]
+        angles = [self.a0] + cuts + [self.a0 + self.sweep]
+        ys = [self.p0[1]] + [self.c[1] + (self.r if math.sin(a) > 0 else -self.r)
+                             for a in cuts] + [self.p1[1]]
+        return [(angles[k], angles[k + 1], ys[k], ys[k + 1]) for k in range(len(angles) - 1)]
 
     def crossings(self, p):
         n = 0
-        for a, b in self._monotone_pieces():
-            ya = self.c[1] + self.r * math.sin(a)
-            yb = self.c[1] + self.r * math.sin(b)
+        for a, b, ya, yb in self._monotone_pieces():
             if (ya > p[1]) != (yb > p[1]):
                 dy = p[1] - self.c[1]
                 dx = math.sqrt(max(self.r * self.r - dy * dy, 0.0))
@@ -153,10 +172,10 @@ class Arc:
 
     def transformed(self, f, rotation=0.0, mirror=False):
         """Map by a rigid motion f whose rotation angle is `rotation` (no mirror support)."""
-        return Arc(f(self.c), self.r, self.a0 + rotation, self.sweep)
+        return Arc(f(self.c), self.r, self.a0 + rotation, self.sweep, f(self.p0), f(self.p1))
 
     def reversed(self):
-        return Arc(self.c, self.r, self.a0 + self.sweep, -self.sweep)
+        return Arc(self.c, self.r, self.a0 + self.sweep, -self.sweep, self.p1, self.p0)
 
     def hits_convex(self, poly):
         """True if the arc meets the closed convex polygon poly (CCW)."""
@@ -301,15 +320,29 @@ def poly_bbox(poly):
 
 # --- loops and regions ---
 
+JOINT_TOL = 1e-6
+"""Joints closer than this (mm) are welded to one exact point."""
+
+
 class Loop:
     """A closed loop of Seg/Arc primitives, chained end to start.
+
+    Joints are welded: each primitive starts at exactly the previous one's end point. Point
+    containment counts ray crossings half-open in y, which is only consistent when both sides of
+    a joint agree on its coordinates to the last bit (issue #5: a circle's seam computed as
+    sin 0 on one side and sin 2π on the other lost a row of cells).
 
     `curved` marks a loop that holds anything other than straight segments (arcs, or curves
     the FreeCAD layer discretised); such loops never snap.
     """
 
     def __init__(self, prims, curved=None):
-        self.prims = list(prims)
+        prims = list(prims)
+        for k in range(len(prims)):
+            end = prims[k - 1].end
+            if prims[k].start != end and dist(prims[k].start, end) <= JOINT_TOL:
+                prims[k] = prims[k].with_start(end)
+        self.prims = prims
         self.curved = any(not isinstance(p, Seg) for p in self.prims) if curved is None else curved
         self._bbox = None
 
